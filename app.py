@@ -329,8 +329,23 @@ def signup():
             flash("That email is already registered. Try logging in.", "error")
             return redirect(url_for("login"))
 
-        # Step 3 will send the verification email and enforce verification.
-        flash("✅ Account created. Next step: verify your email (coming next).", "success")
+        # Send verification email (best-effort)
+        verify_link = f"{APP_BASE_URL}/verify/{verify_token}"
+        try:
+            subject = "Verify your email — Lead Machine Pro"
+            body = "\n".join([
+                "Welcome to Lead Machine Pro.",
+                "",
+                "Please verify your email by clicking this link:",
+                verify_link,
+                "",
+                "If you didn't create this account, you can ignore this email."
+            ])
+            send_email(MAIL_FROM_DEFAULT, email, subject, body)
+        except Exception:
+            pass
+
+        flash("Account created. Check your email to verify your account.", "success")
         return redirect(url_for("login"))
 
     return render_template("signup.html")
@@ -467,3 +482,34 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
 else:
     init_db()
+
+
+@app.route("/verify/<token>", methods=["GET"])
+def verify_email(token):
+    token = (token or "").strip()
+    if not token:
+        flash("Invalid verification link.", "error")
+        return redirect(url_for("login"))
+
+    with get_db() as conn:
+        user = conn.execute(
+            "SELECT id, is_verified FROM users WHERE verify_token = ?",
+            (token,),
+        ).fetchone()
+
+        if not user:
+            flash("Verification link is invalid or expired.", "error")
+            return redirect(url_for("login"))
+
+        if user["is_verified"] == 1:
+            flash("Email already verified. You can log in.", "success")
+            return redirect(url_for("login"))
+
+        conn.execute(
+            "UPDATE users SET is_verified = 1, verify_token = NULL WHERE id = ?",
+            (user["id"],),
+        )
+        conn.commit()
+
+    flash("Email verified. Welcome!", "success")
+    return redirect(url_for("dashboard"))
