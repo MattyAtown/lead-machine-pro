@@ -63,22 +63,91 @@ def get_client(slug: str):
     return CLIENTS.get(slug)
 
 
+def _table_exists(conn, name: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (name,)
+    ).fetchone()
+    return row is not None
+
+def _columns(conn, table: str) -> set[str]:
+    cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return {c[1] for c in cols}
+
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
-        # Create base table if missing
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS leads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT NOT NULL,
-                page_slug TEXT,
-                name TEXT NOT NULL,
-                email TEXT NOT NULL,
-                phone TEXT,
-                company TEXT,
-                message TEXT
-            )
-        """)
+        conn.execute("PRAGMA foreign_keys = ON;")
+
+        # -------------------
+        # USERS TABLE
+        # -------------------
+        if not _table_exists(conn, "users"):
+            conn.execute("""
+                CREATE TABLE users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    is_verified INTEGER NOT NULL DEFAULT 0,
+                    verify_token TEXT,
+                    plan TEXT NOT NULL DEFAULT 'free',
+                    credits INTEGER NOT NULL DEFAULT 3,
+                    stripe_customer_id TEXT,
+                    created_at TEXT NOT NULL
+                )
+            """)
+
+        # -------------------
+        # PAGES TABLE
+        # -------------------
+        if not _table_exists(conn, "pages"):
+            conn.execute("""
+                CREATE TABLE pages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    slug TEXT NOT NULL UNIQUE,
+                    brand_name TEXT NOT NULL DEFAULT 'Lead Machine Pro',
+                    headline TEXT NOT NULL DEFAULT 'Turn clicks into booked calls.',
+                    subheadline TEXT NOT NULL DEFAULT 'Capture leads fast, follow up faster.',
+                    cta_text TEXT NOT NULL DEFAULT 'Capture Lead',
+                    notify_email TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+
+        # -------------------
+        # LEADS TABLE (existing + migrate)
+        # -------------------
+        if not _table_exists(conn, "leads"):
+            conn.execute("""
+                CREATE TABLE leads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    page_slug TEXT,
+                    page_id INTEGER,
+                    name TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    phone TEXT,
+                    company TEXT,
+                    message TEXT,
+                    FOREIGN KEY(page_id) REFERENCES pages(id) ON DELETE SET NULL
+                )
+            """)
+        else:
+            # Add missing columns safely
+            lead_cols = _columns(conn, "leads")
+            if "page_slug" not in lead_cols:
+                conn.execute("ALTER TABLE leads ADD COLUMN page_slug TEXT")
+            if "page_id" not in lead_cols:
+                conn.execute("ALTER TABLE leads ADD COLUMN page_id INTEGER")
+
+            # NOTE: SQLite can't easily add FK constraints via ALTER TABLE.
+            # We'll keep the FK in the CREATE TABLE for fresh DBs.
+            # For existing DBs, app logic will still work fine.
+
         conn.commit()
+
 
         # Lightweight migration: ensure page_slug exists even if table pre-existed
         cols = conn.execute("PRAGMA table_info(leads)").fetchall()
