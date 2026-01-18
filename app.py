@@ -151,12 +151,23 @@ def init_db():
         conn.commit()
 
 
-        # Lightweight migration: ensure page_slug exists even if table pre-existed
-        cols = conn.execute("PRAGMA table_info(leads)").fetchall()
-        col_names = {c[1] for c in cols}
-        if "page_slug" not in col_names:
-            conn.execute("ALTER TABLE leads ADD COLUMN page_slug TEXT")
-            conn.commit()
+def get_db():
+    """Return a SQLite connection with Row dict-style access."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def current_user():
+    uid = session.get("user_id")
+    if not uid:
+        return None
+    with get_db() as conn:
+        return conn.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
+
+
+def login_required() -> bool:
+    return session.get("user_id") is not None
 
 
 def is_admin() -> bool:
@@ -285,6 +296,80 @@ def lead():
 
     flash("✅ Lead captured. We'll reach out shortly.", "success")
     return redirect(request.referrer or url_for("home"))
+
+
+# =========================
+# User Accounts (Step 2)
+# =========================
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        password = (request.form.get("password") or "").strip()
+
+        if not email or not password:
+            flash("Email and password are required.", "error")
+            return redirect(url_for("signup"))
+
+        pw_hash = generate_password_hash(password)
+        verify_token = secrets.token_urlsafe(32)
+        created_at = datetime.utcnow().isoformat()
+
+        try:
+            with get_db() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO users (email, password_hash, is_verified, verify_token, plan, credits, created_at)
+                    VALUES (?, ?, 0, ?, 'free', 3, ?)
+                    """,
+                    (email, pw_hash, verify_token, created_at),
+                )
+                conn.commit()
+        except sqlite3.IntegrityError:
+            flash("That email is already registered. Try logging in.", "error")
+            return redirect(url_for("login"))
+
+        # Step 3 will send the verification email and enforce verification.
+        flash("✅ Account created. Next step: verify your email (coming next).", "success")
+        return redirect(url_for("login"))
+
+    return render_template("signup.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        password = (request.form.get("password") or "").strip()
+
+        with get_db() as conn:
+            user = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+
+        if not user or not check_password_hash(user["password_hash"], password):
+            flash("Invalid email or password.", "error")
+            return redirect(url_for("login"))
+
+        session["user_id"] = user["id"]
+        flash("✅ Logged in.", "success")
+        return redirect(url_for("dashboard"))
+
+    return render_template("login.html")
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.pop("user_id", None)
+    flash("👋 Logged out.", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard", methods=["GET"])
+def dashboard():
+    if not login_required():
+        return redirect(url_for("login"))
+
+    user = current_user()
+    return render_template("dashboard.html", user=user)
 
 
 @app.route("/admin", methods=["GET", "POST"])
