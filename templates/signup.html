@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Sign up • Lead Machine Pro{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Create your account</h2>
+  <p class="muted">Free tier starts with <strong>3 lead credits</strong>.</p>
+
+  <form method="POST" class="form">
+    <div class="field">
+      <label>Email</label>
+      <input name="email" type="email" required />
+    </div>
+
+    <div class="field">
+      <label>Password</label>
+      <input name="password" type="password" required />
+    </div>
+
+    <button class="btn primary" type="submit">Create account</button>
+  </form>
+
+  <p class="muted" style="margin-top:12px;">
+    Already have an account? <a href="/login">Log in</a>
+  </p>
+</div>
+{% endblock %}
