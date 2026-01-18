@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin • Lead Machine Pro</title>
+  <style>
+    :root{
+      --bg:#070A12; --text:rgba(255,255,255,0.92); --muted:rgba(255,255,255,0.65);
+      --stroke:rgba(255,255,255,0.12);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; min-height:100vh; display:grid; place-items:center;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color:var(--text);
+      background: radial-gradient(900px 600px at 15% 15%, rgba(0, 255, 255, 0.10), transparent 60%),
+                  radial-gradient(900px 600px at 85% 25%, rgba(140, 0, 255, 0.10), transparent 60%),
+                  linear-gradient(180deg, #050612 0%, var(--bg) 100%);
+      padding: 18px;
+    }
+    .card{
+      width:min(520px, 100%);
+      border:1px solid var(--stroke);
+      border-radius: 22px;
+      padding: 18px;
+      background: rgba(255,255,255,0.06);
+      box-shadow: 0 30px 90px rgba(0,0,0,0.55), 0 0 45px rgba(0,255,255,0.12);
+    }
+    h1{margin:0 0 6px; font-size:18px}
+    p{margin:0 0 14px; color:var(--muted); font-size:13px; line-height:1.5}
+    label{display:block; margin:0 0 7px; font-size:12px; color:rgba(255,255,255,0.78)}
+    input{
+      width:100%;
+      border-radius: 16px;
+      border:1px solid rgba(255,255,255,0.12);
+      background: rgba(0,0,0,0.35);
+      color: var(--text);
+      padding: 12px 12px;
+      outline:none;
+    }
+    .row{display:flex; gap:10px; justify-content:space-between; align-items:center; margin-top:12px; flex-wrap:wrap;}
+    .btn{
+      border: 1px solid var(--stroke);
+      background: linear-gradient(90deg, rgba(0,255,255,0.20), rgba(140,0,255,0.18));
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 14px;
+      cursor:pointer;
+      font-weight: 700;
+      font-size: 13px;
+      text-decoration:none;
+    }
+    .link{color:rgba(255,255,255,0.75); font-size:12px; text-decoration:none}
+    .flash{
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid var(--stroke);
+      background: rgba(255,255,255,0.05);
+      font-size: 13px;
+    }
+    .flash.success{ border-color: rgba(50,255,170,0.35); }
+    .flash.error{ border-color: rgba(255,80,80,0.35); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Admin Login</h1>
+    <p>Enter the admin password to view leads and export CSV.</p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, msg in messages %}
+          <div class="flash {{category}}">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST" action="/admin">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" placeholder="••••••••" required />
+      <div class="row">
+        <a class="link" href="/">← Back to site</a>
+        <button class="btn" type="submit">Unlock</button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>

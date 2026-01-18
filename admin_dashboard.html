@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dashboard • Lead Machine Pro</title>
+  <style>
+    :root{
+      --bg:#070A12; --text:rgba(255,255,255,0.92); --muted:rgba(255,255,255,0.65);
+      --stroke:rgba(255,255,255,0.12);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; min-height:100vh;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color:var(--text);
+      background: radial-gradient(900px 600px at 15% 15%, rgba(0, 255, 255, 0.10), transparent 60%),
+                  radial-gradient(900px 600px at 85% 25%, rgba(140, 0, 255, 0.10), transparent 60%),
+                  linear-gradient(180deg, #050612 0%, var(--bg) 100%);
+      padding: 18px;
+    }
+    .wrap{max-width: 1200px; margin: 0 auto;}
+    header{
+      display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;
+      border:1px solid var(--stroke);
+      border-radius: 18px;
+      padding: 12px 14px;
+      background: rgba(255,255,255,0.06);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45), 0 0 45px rgba(0,255,255,0.10);
+      margin-bottom: 14px;
+    }
+    h1{margin:0; font-size:16px}
+    .muted{color:var(--muted); font-size:12px}
+    .btn{
+      border: 1px solid var(--stroke);
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 14px;
+      cursor:pointer;
+      font-weight: 700;
+      font-size: 13px;
+      text-decoration:none;
+      display:inline-flex; align-items:center; gap:8px;
+    }
+    .btn.primary{
+      background: linear-gradient(90deg, rgba(0,255,255,0.20), rgba(140,0,255,0.18));
+    }
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end}
+    .card{
+      border:1px solid var(--stroke);
+      border-radius: 18px;
+      padding: 14px;
+      background: rgba(255,255,255,0.05);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+    }
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      overflow:hidden;
+      border-radius: 16px;
+      border:1px solid rgba(255,255,255,0.10);
+      background: rgba(0,0,0,0.25);
+    }
+    th, td{
+      padding: 10px 10px;
+      border-bottom:1px solid rgba(255,255,255,0.08);
+      vertical-align:top;
+      font-size: 12px;
+    }
+    th{
+      text-align:left;
+      color: rgba(255,255,255,0.85);
+      background: rgba(255,255,255,0.06);
+      position: sticky;
+      top: 0;
+      backdrop-filter: blur(8px);
+    }
+    td{ color: rgba(255,255,255,0.82); }
+    tr:last-child td{ border-bottom: none; }
+    .nowrap{white-space:nowrap}
+    .msg{max-width: 420px; white-space:pre-wrap; color: rgba(255,255,255,0.75)}
+    .flash{
+      margin: 10px 0;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid var(--stroke);
+      background: rgba(255,255,255,0.05);
+      font-size: 13px;
+    }
+    .flash.success{ border-color: rgba(50,255,170,0.35); }
+    .flash.error{ border-color: rgba(255,80,80,0.35); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Lead Machine Pro • Admin Dashboard</h1>
+        <div class="muted">Total leads: {{ leads|length }}</div>
+      </div>
+      <div class="row">
+        <a class="btn primary" href="/admin/export.csv">⬇ Export CSV</a>
+        <a class="btn" href="/">↩ Back to site</a>
+        <form method="POST" action="/admin/logout" style="margin:0;">
+          <button class="btn" type="submit">🚪 Logout</button>
+        </form>
+      </div>
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, msg in messages %}
+          <div class="flash {{category}}">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th class="nowrap">Created</th>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Company</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in leads %}
+            <tr>
+              <td class="nowrap">{{ l.created_at }}</td>
+              <td>{{ l.name }}</td>
+              <td>{{ l.email }}</td>
+              <td>{{ l.phone or "" }}</td>
+              <td>{{ l.company or "" }}</td>
+              <td class="msg">{{ l.message or "" }}</td>
+            </tr>
+          {% endfor %}
+          {% if leads|length == 0 %}
+            <tr><td colspan="6" class="muted">No leads yet. Go capture some humans. ✅</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>
