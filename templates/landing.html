@@ -1,221 +1,136 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>{{ cfg.page_title }}</title>
-  <style>
-    :root{
-      --bg:#070A12;
-      --panel: rgba(255,255,255,0.06);
-      --text: rgba(255,255,255,0.92);
-      --muted: rgba(255,255,255,0.65);
-      --stroke: rgba(255,255,255,0.10);
-      --glow: rgba(0,255,255,0.18);
-      --glow2: rgba(140,0,255,0.14);
-    }
-    *{box-sizing:border-box}
-    body{
-      margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      color:var(--text);
-      background:
-        radial-gradient(1000px 600px at 15% 15%, rgba(0, 255, 255, 0.10), transparent 60%),
-        radial-gradient(900px 600px at 85% 25%, rgba(140, 0, 255, 0.10), transparent 60%),
-        radial-gradient(700px 700px at 50% 85%, rgba(255, 0, 120, 0.08), transparent 60%),
-        linear-gradient(180deg, #050612 0%, #070A12 100%);
-      min-height:100vh;
-      overflow-x:hidden;
-    }
-    .wrap{max-width:1100px;margin:0 auto;padding:28px 18px 60px;}
-    .banner{
-      border:1px solid var(--stroke);
-      background: linear-gradient(90deg, rgba(0,255,255,0.12), rgba(140,0,255,0.10), rgba(255,0,120,0.10));
-      border-radius: 16px;
-      padding: 12px 14px;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap: 10px;
-      box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 18px 60px rgba(0,0,0,0.45);
-      position: relative;
-      overflow:hidden;
-      animation: pulse 1.4s ease-in-out infinite;
-    }
-    @keyframes pulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.25)}}
-    .banner:after{
-      content:"";
-      position:absolute;top:-120%;left:-30%;
-      width:70%;height:300%;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
-      transform: rotate(18deg);
-      animation: sweep 2.2s linear infinite;
-    }
-    @keyframes sweep{0%{transform:translateX(-60%) rotate(18deg);opacity:0}20%{opacity:1}100%{transform:translateX(220%) rotate(18deg);opacity:0}}
-    header{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 2px 22px;}
-    .brand{display:flex;align-items:center;gap:12px;min-width:240px;}
-    .logo{
-      width:44px;height:44px;border-radius:14px;border:1px solid var(--stroke);
-      background:
-        radial-gradient(circle at 30% 30%, rgba(0,255,255,0.55), transparent 55%),
-        radial-gradient(circle at 75% 60%, rgba(140,0,255,0.55), transparent 55%),
-        rgba(255,255,255,0.04);
-      box-shadow: 0 0 24px rgba(0,255,255,0.12), 0 0 34px rgba(140,0,255,0.10);
-      display:grid;place-items:center;font-weight:800;letter-spacing:.6px;
-    }
-    .brand h1{margin:0;font-size:18px;line-height:1.1}
-    .brand p{margin:2px 0 0;color:var(--muted);font-size:12px}
-    .btn{
-      border:1px solid var(--stroke);
-      background: rgba(255,255,255,0.05);
-      color: var(--text);
-      padding:10px 14px;border-radius:14px;
-      cursor:pointer;font-weight:700;font-size:13px;text-decoration:none;
-      display:inline-flex;align-items:center;gap:8px;
-      box-shadow: 0 10px 24px rgba(0,0,0,0.35);
-      transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;
-    }
-    .btn:hover{transform:translateY(-1px);border-color:rgba(0,255,255,0.35);background:rgba(255,255,255,0.07);}
-    .btn.primary{background: linear-gradient(90deg, rgba(0,255,255,0.20), rgba(140,0,255,0.18));border-color:rgba(0,255,255,0.25);}
-    .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;margin-top:14px;}
-    .card{
-      border:1px solid var(--stroke);
-      background: linear-gradient(180deg, var(--panel), rgba(255,255,255,0.03));
-      border-radius: 22px;
-      padding: 18px;
-      box-shadow: 0 30px 90px rgba(0,0,0,0.55), 0 0 45px var(--glow), 0 0 55px var(--glow2);
-    }
-    .card h2{margin:0 0 6px;font-size:22px}
-    .card p{margin:0 0 14px;color:var(--muted);line-height:1.5}
-    form{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;}
-    .full{grid-column:1 / -1;}
-    label{display:block;font-size:12px;color:rgba(255,255,255,0.78);margin:0 0 7px;}
-    input, textarea{
-      width:100%;
-      border-radius:16px;
-      border:1px solid rgba(255,255,255,0.12);
-      background: rgba(0,0,0,0.35);
-      color: var(--text);
-      padding:12px 12px;
-      outline:none;
-    }
-    textarea{min-height:110px;resize:vertical;}
-    .actions{grid-column:1 / -1;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:6px;}
-    .note{color:var(--muted);font-size:12px;}
-    .flash{margin-top:12px;padding:10px 12px;border-radius:14px;border:1px solid var(--stroke);background:rgba(255,255,255,0.05);}
-    .flash.success{border-color: rgba(50,255,170,0.35);}
-    .flash.error{border-color: rgba(255,80,80,0.35);}
-    .side .feature{border:1px solid var(--stroke);background:rgba(255,255,255,0.04);border-radius:18px;padding:12px;margin-bottom:12px;}
-    .side strong{display:block;margin-bottom:4px;}
-    .side span{color:var(--muted);font-size:12px;line-height:1.45;}
-    footer{margin-top:18px;color:rgba(255,255,255,0.45);font-size:12px;text-align:center;padding:18px 0 0;}
-    @media (max-width: 900px){.grid{grid-template-columns:1fr;}form{grid-template-columns:1fr;}}
-  </style>
-</head>
+{% extends "base.html" %}
+{% block title %}{{ cfg.page_title }} • Lead Machine Pro{% endblock %}
 
-<body>
-  <div class="wrap">
-    <div class="banner">
-      <div>
-        <strong>⚡ {{ cfg.brand_name }} is LIVE</strong>
-        <span style="color:rgba(255,255,255,0.65);font-size:13px;"> — capture leads fast, follow up faster.</span>
-      </div>
-      <div style="position:relative;z-index:2">
-        <a class="btn primary" href="#lead">{{ cfg.cta }}</a>
-      </div>
-    </div>
+{% block content %}
+<style>
+  /* Page-specific styling (keeps the crisp/glow look without fighting base.html) */
+  .banner{
+    border:1px solid rgba(255,255,255,0.12);
+    background: linear-gradient(90deg, rgba(0,255,255,0.12), rgba(140,0,255,0.10), rgba(255,0,120,0.10));
+    border-radius: 16px;
+    padding: 12px 14px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap: 10px;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 18px 60px rgba(0,0,0,0.45);
+    position: relative;
+    overflow:hidden;
+    margin-bottom: 16px;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.25)}}
+  .banner:after{
+    content:"";
+    position:absolute;top:-120%;left:-30%;
+    width:70%;height:300%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+    transform: rotate(18deg);
+    animation: sweep 2.2s linear infinite;
+  }
+  @keyframes sweep{0%{transform:translateX(-60%) rotate(18deg);opacity:0}20%{opacity:1}100%{transform:translateX(220%) rotate(18deg);opacity:0}}
 
-    <header>
-      <div class="brand">
-        <div class="logo">LM</div>
-        <div>
-          <h1>{{ cfg.brand_name }}</h1>
-          <p>{{ cfg.subheadline }}</p>
-        </div>
-      </div>
-      <nav style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
-        <a class="btn" href="/">Home</a>
-        {% if cfg.slug != "home" %}
-          <a class="btn" href="/admin">Admin</a>
-        {% endif %}
-        <a class="btn primary" href="#lead">{{ cfg.cta }}</a>
-      </nav>
-    </header>
+  .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;margin-top:10px;}
+  .side .feature{border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);border-radius:18px;padding:12px;margin-bottom:12px;}
+  .side strong{display:block;margin-bottom:4px;}
+  .side span{color:rgba(255,255,255,0.65);font-size:12px;line-height:1.45;}
 
-    <div class="grid">
-      <section class="card">
-        <h2>{{ cfg.headline }}</h2>
-        <p>{{ cfg.subheadline }}</p>
+  form{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;}
+  .full{grid-column:1 / -1;}
+  label{display:block;font-size:12px;color:rgba(255,255,255,0.78);margin:0 0 7px;}
+  input, textarea{
+    width:100%;
+    border-radius:16px;
+    border:1px solid rgba(255,255,255,0.12);
+    background: rgba(0,0,0,0.35);
+    color: rgba(255,255,255,0.92);
+    padding:12px 12px;
+    outline:none;
+  }
+  textarea{min-height:110px;resize:vertical;}
+  .actions{grid-column:1 / -1;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:6px;}
+  .note{color:rgba(255,255,255,0.65);font-size:12px;}
+  @media (max-width: 900px){.grid{grid-template-columns:1fr;}form{grid-template-columns:1fr;}}
+</style>
 
-        {% with messages = get_flashed_messages(with_categories=true) %}
-          {% if messages %}
-            {% for category, msg in messages %}
-              <div class="flash {{category}}">{{ msg }}</div>
-            {% endfor %}
-          {% endif %}
-        {% endwith %}
-
-        <h2 id="lead" style="margin-top:16px;font-size:18px;">Capture a lead</h2>
-        <p style="margin-bottom:8px;">This stores leads instantly and triggers fast follow-up.</p>
-
-        <form method="POST" action="/lead">
-          <input type="hidden" name="page_slug" value="{{ cfg.slug }}" />
-
-          <div>
-            <label for="name">Name *</label>
-            <input id="name" name="name" placeholder="Jane Doe" required />
-          </div>
-
-          <div>
-            <label for="email">Email *</label>
-            <input id="email" name="email" type="email" placeholder="jane@company.com" required />
-          </div>
-
-          <div>
-            <label for="phone">Phone</label>
-            <input id="phone" name="phone" placeholder="+44..." />
-          </div>
-
-          <div>
-            <label for="company">Company</label>
-            <input id="company" name="company" placeholder="Acme Ltd" />
-          </div>
-
-          <div class="full">
-            <label for="message">What do you need help with?</label>
-            <textarea id="message" name="message" placeholder="Tell us what you're trying to achieve..."></textarea>
-          </div>
-
-          <div class="actions">
-            <span class="note">By submitting, you agree to be contacted about your enquiry.</span>
-            <button class="btn primary" type="submit">{{ cfg.cta }}</button>
-          </div>
-        </form>
-      </section>
-
-      <aside class="card side">
-        <div class="feature">
-          <strong>Instant capture</strong>
-          <span>No lost enquiries. Leads are stored immediately.</span>
-        </div>
-        <div class="feature">
-          <strong>Route by client</strong>
-          <span>Each page slug becomes a client “inbox.”</span>
-        </div>
-        <div class="feature">
-          <strong>Admin + CSV</strong>
-          <span>View all leads and export anytime.</span>
-        </div>
-        <div class="feature">
-          <strong>Scales cleanly</strong>
-          <span>One Render service can host unlimited client pages.</span>
-        </div>
-      </aside>
-    </div>
-
-    <footer>
-      © {{ cfg.brand_name }} — Built with Flask on Render. Powered by ruthless simplicity.
-    </footer>
+<div class="banner">
+  <div style="position:relative;z-index:2">
+    <strong>⚡ {{ cfg.brand_name }} is LIVE</strong>
+    <span style="color:rgba(255,255,255,0.65);font-size:13px;"> — capture leads fast, follow up faster.</span>
   </div>
-</body>
-</html>
+
+  <div style="position:relative;z-index:2;display:flex;gap:10px;flex-wrap:wrap;">
+    <a class="btn" href="/login">Login</a>
+    <a class="btn primary" href="/signup">Sign up</a>
+    <a class="btn" href="/admin">Admin</a>
+    <a class="btn primary" href="#lead">Capture Lead</a>
+  </div>
+</div>
+
+<div class="grid">
+  <section class="card">
+    <h2 style="margin:0 0 6px;font-size:22px;">{{ cfg.headline }}</h2>
+    <p class="muted" style="margin:0 0 14px;">{{ cfg.subheadline }}</p>
+
+    <h3 id="lead" style="margin:14px 0 6px;font-size:16px;">Lead capture</h3>
+    <p class="muted" style="margin:0 0 10px;">
+      This stores leads instantly. Next we’ll connect it to credits + verified accounts.
+    </p>
+
+    <form method="POST" action="/lead">
+      <input type="hidden" name="page_slug" value="{{ cfg.slug }}" />
+
+      <div>
+        <label for="name">Name *</label>
+        <input id="name" name="name" placeholder="Jane Doe" required />
+      </div>
+
+      <div>
+        <label for="email">Email *</label>
+        <input id="email" name="email" type="email" placeholder="jane@company.com" required />
+      </div>
+
+      <div>
+        <label for="phone">Phone</label>
+        <input id="phone" name="phone" placeholder="+44..." />
+      </div>
+
+      <div>
+        <label for="company">Company</label>
+        <input id="company" name="company" placeholder="Acme Ltd" />
+      </div>
+
+      <div class="full">
+        <label for="message">What do you need help with?</label>
+        <textarea id="message" name="message" placeholder="Tell us what you're trying to achieve..."></textarea>
+      </div>
+
+      <div class="actions">
+        <span class="note">By submitting, you agree to be contacted about your enquiry.</span>
+        <button class="btn primary" type="submit" style="justify-content:center;">
+          Submit Lead
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <aside class="card side">
+    <div class="feature">
+      <strong>Next upgrade: Accounts</strong>
+      <span>Signup/login will own lead pages and control who receives leads.</span>
+    </div>
+    <div class="feature">
+      <strong>Credits system</strong>
+      <span>Free plan gets 3 credits. When credits hit 0, lead capture locks until upgrade.</span>
+    </div>
+    <div class="feature">
+      <strong>Billing ready</strong>
+      <span>Verified email becomes billing identity. Stripe comes after the core flow is stable.</span>
+    </div>
+    <div class="feature">
+      <strong>Admin stays separate</strong>
+      <span>Your global admin remains protected and independent from customer accounts.</span>
+    </div>
+  </aside>
+</div>
+{% endblock %}
