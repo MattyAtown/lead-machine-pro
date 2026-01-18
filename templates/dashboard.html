@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Dashboard • Lead Machine Pro{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Your dashboard</h2>
+  <p class="muted">
+    Logged in as <strong>{{ user.email }}</strong>
+    • Plan: <strong>{{ user.plan }}</strong>
+    • Credits: <strong>{{ user.credits }}</strong>
+  </p>
+
+  <p class="muted">Next step: email verification + create your first lead page.</p>
+
+  <form method="POST" action="/logout" style="margin-top:12px;">
+    <button class="btn" type="submit">Logout</button>
+  </form>
+</div>
+{% endblock %}
