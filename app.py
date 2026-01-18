@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, make_response
+from flask import Flask, render_template, request, redirect, url_for, flash, session, make_response, abort
 import sqlite3
 from datetime import datetime
 import os
@@ -21,16 +21,56 @@ SMTP_HOST = os.environ.get("SMTP_HOST", "")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASS = os.environ.get("SMTP_PASS", "")
-MAIL_FROM = os.environ.get("MAIL_FROM", "")
-OWNER_NOTIFY_EMAIL = os.environ.get("OWNER_NOTIFY_EMAIL", "")
+MAIL_FROM_DEFAULT = os.environ.get("MAIL_FROM", "")  # default From if client doesn't override
+OWNER_NOTIFY_EMAIL_DEFAULT = os.environ.get("OWNER_NOTIFY_EMAIL", "")  # default owner email
+
+
+# =========================
+# Multi-client configuration
+# =========================
+# Add new clients here. "slug" is the URL part: /r/<slug>
+CLIENTS = {
+    "recruiters": {
+        "brand_name": "Lead Machine Pro",
+        "page_title": "Recruiter Lead Machine",
+        "headline": "Win more hiring briefs. Faster.",
+        "subheadline": "Capture warm leads, respond instantly, and stop losing clients to slower recruiters.",
+        "cta": "⚡ Request a callback",
+        "owner_email": OWNER_NOTIFY_EMAIL_DEFAULT,  # can override per client
+        "mail_from": MAIL_FROM_DEFAULT,             # can override per client
+    },
+    "mortgages": {
+        "brand_name": "Lead Machine Pro",
+        "page_title": "Mortgage Broker Lead Machine",
+        "headline": "Turn mortgage enquiries into booked calls.",
+        "subheadline": "Fast capture + instant reply so your leads don’t cool off.",
+        "cta": "🏡 Get a quote",
+        "owner_email": OWNER_NOTIFY_EMAIL_DEFAULT,
+        "mail_from": MAIL_FROM_DEFAULT,
+    },
+    "consulting": {
+        "brand_name": "Lead Machine Pro",
+        "page_title": "Consulting Lead Machine",
+        "headline": "Convert visitors into paid conversations.",
+        "subheadline": "A single page that captures intent and triggers fast follow-up.",
+        "cta": "🚀 Start the conversation",
+        "owner_email": OWNER_NOTIFY_EMAIL_DEFAULT,
+        "mail_from": MAIL_FROM_DEFAULT,
+    },
+}
+
+def get_client(slug: str):
+    return CLIENTS.get(slug)
 
 
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
+        # Create base table if missing
         conn.execute("""
             CREATE TABLE IF NOT EXISTS leads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 created_at TEXT NOT NULL,
+                page_slug TEXT,
                 name TEXT NOT NULL,
                 email TEXT NOT NULL,
                 phone TEXT,
@@ -40,19 +80,25 @@ def init_db():
         """)
         conn.commit()
 
+        # Lightweight migration: ensure page_slug exists even if table pre-existed
+        cols = conn.execute("PRAGMA table_info(leads)").fetchall()
+        col_names = {c[1] for c in cols}
+        if "page_slug" not in col_names:
+            conn.execute("ALTER TABLE leads ADD COLUMN page_slug TEXT")
+            conn.commit()
+
 
 def is_admin() -> bool:
     return session.get("is_admin") is True
 
 
-def email_enabled() -> bool:
-    # Only enable if the critical pieces exist
-    return all([SMTP_HOST, SMTP_USER, SMTP_PASS, MAIL_FROM, OWNER_NOTIFY_EMAIL])
+def email_enabled_for(owner_email: str, mail_from: str) -> bool:
+    return all([SMTP_HOST, SMTP_USER, SMTP_PASS, owner_email, mail_from])
 
 
-def send_email(to_email: str, subject: str, body: str) -> None:
+def send_email(mail_from: str, to_email: str, subject: str, body: str) -> None:
     msg = EmailMessage()
-    msg["From"] = MAIL_FROM
+    msg["From"] = mail_from
     msg["To"] = to_email
     msg["Subject"] = subject
     msg.set_content(body)
@@ -64,13 +110,46 @@ def send_email(to_email: str, subject: str, body: str) -> None:
         server.send_message(msg)
 
 
+# =========================
+# Routes
+# =========================
 @app.route("/", methods=["GET"])
 def home():
-    return render_template("index.html")
+    # “Home” can be your main demo landing page
+    # It uses the same template as client pages but with a default config.
+    default_cfg = {
+        "brand_name": "Lead Machine Pro",
+        "page_title": "Lead Machine Pro",
+        "headline": "Turn clicks into booked calls.",
+        "subheadline": "Single-page lead capture that converts visitors into conversations.",
+        "cta": "⚡ Capture Lead",
+        "slug": "home",
+    }
+    return render_template("landing.html", cfg=default_cfg)
+
+
+@app.route("/r/<slug>", methods=["GET"])
+def client_page(slug):
+    cfg = get_client(slug)
+    if not cfg:
+        abort(404)
+
+    # inject slug so form posts with the correct routing
+    cfg = dict(cfg)
+    cfg["slug"] = slug
+    return render_template("landing.html", cfg=cfg)
 
 
 @app.route("/lead", methods=["POST"])
 def lead():
+    slug = (request.form.get("page_slug") or "home").strip()
+    cfg = get_client(slug) if slug != "home" else None
+
+    # Determine routing defaults
+    brand_name = (cfg.get("brand_name") if cfg else "Lead Machine Pro")
+    owner_email = (cfg.get("owner_email") if cfg else OWNER_NOTIFY_EMAIL_DEFAULT)
+    mail_from = (cfg.get("mail_from") if cfg else MAIL_FROM_DEFAULT)
+
     name = (request.form.get("name") or "").strip()
     email = (request.form.get("email") or "").strip()
     phone = (request.form.get("phone") or "").strip()
@@ -79,25 +158,26 @@ def lead():
 
     if not name or not email:
         flash("Name and email are required.", "error")
-        return redirect(url_for("home"))
+        return redirect(request.referrer or url_for("home"))
 
     created_at = datetime.utcnow().isoformat()
 
     # Save lead first (always)
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
-            "INSERT INTO leads (created_at, name, email, phone, company, message) VALUES (?, ?, ?, ?, ?, ?)",
-            (created_at, name, email, phone, company, message),
+            "INSERT INTO leads (created_at, page_slug, name, email, phone, company, message) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (created_at, slug, name, email, phone, company, message),
         )
         conn.commit()
 
     # Email notifications (fail-safe)
-    if email_enabled():
+    if email_enabled_for(owner_email, mail_from):
         try:
-            owner_subject = f"🔥 New Lead: {name} ({company or 'No company'})"
+            owner_subject = f"🔥 New Lead [{slug}]: {name} ({company or 'No company'})"
             owner_body = "\n".join([
-                "A new lead was captured on Lead Machine Pro.",
+                f"A new lead was captured on {brand_name}.",
                 "",
+                f"Page slug: {slug}",
                 f"Time (UTC): {created_at}",
                 f"Name: {name}",
                 f"Email: {email}",
@@ -110,9 +190,9 @@ def lead():
                 "Admin Dashboard:",
                 "Visit /admin to view all leads."
             ])
-            send_email(OWNER_NOTIFY_EMAIL, owner_subject, owner_body)
+            send_email(mail_from, owner_email, owner_subject, owner_body)
 
-            lead_subject = "✅ We got your enquiry — Lead Machine Pro"
+            lead_subject = f"✅ We got your enquiry — {brand_name}"
             lead_body = "\n".join([
                 f"Hi {name},",
                 "",
@@ -124,17 +204,16 @@ def lead():
                 "",
                 "If you want to add context, just reply to this email.",
                 "",
-                "— Lead Machine Pro"
+                f"— {brand_name}"
             ])
-            send_email(email, lead_subject, lead_body)
+            send_email(mail_from, email, lead_subject, lead_body)
 
         except Exception:
-            # Don’t block lead capture if email fails
             flash("✅ Lead captured. (Email notification failed — check SMTP settings.)", "success")
-            return redirect(url_for("home"))
+            return redirect(request.referrer or url_for("home"))
 
     flash("✅ Lead captured. We'll reach out shortly.", "success")
-    return redirect(url_for("home"))
+    return redirect(request.referrer or url_for("home"))
 
 
 @app.route("/admin", methods=["GET", "POST"])
@@ -166,16 +245,29 @@ def admin_dashboard():
     if not is_admin():
         return redirect(url_for("admin_login"))
 
+    # Optional filter: /admin/dashboard?slug=recruiters
+    slug = (request.args.get("slug") or "").strip()
+
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("""
-            SELECT id, created_at, name, email, phone, company, message
-            FROM leads
-            ORDER BY datetime(created_at) DESC
-        """).fetchall()
+        if slug:
+            rows = conn.execute("""
+                SELECT id, created_at, page_slug, name, email, phone, company, message
+                FROM leads
+                WHERE page_slug = ?
+                ORDER BY datetime(created_at) DESC
+            """, (slug,)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT id, created_at, page_slug, name, email, phone, company, message
+                FROM leads
+                ORDER BY datetime(created_at) DESC
+            """).fetchall()
 
     leads = [dict(r) for r in rows]
-    return render_template("admin_dashboard.html", leads=leads)
+    # Pass known slugs for quick filtering UI (template can show them)
+    slugs = sorted(set(list(CLIENTS.keys()) + ["home"]))
+    return render_template("admin_dashboard.html", leads=leads, slugs=slugs, active_slug=slug)
 
 
 @app.route("/admin/export.csv", methods=["GET"])
@@ -183,20 +275,30 @@ def admin_export_csv():
     if not is_admin():
         return redirect(url_for("admin_login"))
 
+    slug = (request.args.get("slug") or "").strip()
+
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("""
-            SELECT id, created_at, name, email, phone, company, message
-            FROM leads
-            ORDER BY datetime(created_at) DESC
-        """).fetchall()
+        if slug:
+            rows = conn.execute("""
+                SELECT id, created_at, page_slug, name, email, phone, company, message
+                FROM leads
+                WHERE page_slug = ?
+                ORDER BY datetime(created_at) DESC
+            """, (slug,)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT id, created_at, page_slug, name, email, phone, company, message
+                FROM leads
+                ORDER BY datetime(created_at) DESC
+            """).fetchall()
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["id", "created_at", "name", "email", "phone", "company", "message"])
+    writer.writerow(["id", "created_at", "page_slug", "name", "email", "phone", "company", "message"])
 
     for r in rows:
-        writer.writerow([r["id"], r["created_at"], r["name"], r["email"], r["phone"], r["company"], r["message"]])
+        writer.writerow([r["id"], r["created_at"], r["page_slug"], r["name"], r["email"], r["phone"], r["company"], r["message"]])
 
     resp = make_response(output.getvalue())
     resp.headers["Content-Type"] = "text/csv; charset=utf-8"
@@ -208,5 +310,4 @@ if __name__ == "__main__":
     init_db()
     app.run(host="0.0.0.0", port=5000, debug=True)
 else:
-    # For gunicorn on Render
     init_db()
