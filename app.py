@@ -7,6 +7,8 @@ import io
 import smtplib
 import ssl
 from email.message import EmailMessage
+from werkzeug.security import generate_password_hash, check_password_hash
+import secrets
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-prod")
