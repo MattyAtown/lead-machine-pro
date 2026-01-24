@@ -24,10 +24,34 @@
   {% endif %}
 
   {% if user.credits <= 0 %}
-    <div class="flash error" style="margin-top:12px;">
-      You have 0 credits. Your lead pages will stop capturing leads until you upgrade.
+  <div class="flash error" style="margin-top:12px;">
+    You have 0 credits. Your lead pages will stop capturing leads until you upgrade.
+  </div>
+
+  <div class="card" style="margin-top:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);">
+    <h3 style="margin:0 0 8px;">Upgrade to keep capturing leads</h3>
+    <p class="muted" style="margin:0 0 12px;">
+      Your pages are live, but lead capture is locked until credits are topped up.
+      Choose a quick top-up option below.
+    </p>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <!-- Option A: simple payment link (works immediately) -->
+      <a class="btn primary" href="{{ UPGRADE_URL or '#' }}" target="_blank" rel="noopener">
+        Buy credits
+      </a>
+
+      <!-- Option B: email you (manual invoicing fallback) -->
+      <a class="btn" href="mailto:support@yourdomain.com?subject=Lead%20Machine%20Pro%20-%20Credits%20Top%20Up&body=Hi%2C%0A%0AMy%20account%20email%20is%3A%20{{ user.email }}%0A%0AI%20need%20more%20credits.%20Please%20send%20payment%20options.%0A">
+        Request invoice
+      </a>
     </div>
-  {% endif %}
+
+    <p class="muted" style="margin-top:10px;font-size:12px;">
+      Tip: Stripe subscriptions can be added later once cashflow starts.
+    </p>
+  </div>
+{% endif %}
 
   <hr style="border:none;border-top:1px solid rgba(255,255,255,0.12);margin:18px 0;">
 
