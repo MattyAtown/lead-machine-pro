@@ -1,18 +1,102 @@
 {% extends "base.html" %}
 {% block title %}Dashboard • Lead Machine Pro{% endblock %}
+
 {% block content %}
-<div class="card">
-  <h2>Your dashboard</h2>
-  <p class="muted">
+<div class="card" style="max-width:950px;margin:0 auto;">
+
+  <h2 style="margin:0 0 6px;">Your dashboard</h2>
+  <p class="muted" style="margin:0 0 14px;">
     Logged in as <strong>{{ user.email }}</strong>
     • Plan: <strong>{{ user.plan }}</strong>
     • Credits: <strong>{{ user.credits }}</strong>
+    • Verified: <strong>{{ "Yes" if user.is_verified == 1 else "No" }}</strong>
   </p>
 
-  <p class="muted">Next step: email verification + create your first lead page.</p>
+  {% if user.is_verified != 1 %}
+    <div class="flash error" style="margin-top:10px;">
+      Your email is not verified yet. Verification is required to create lead pages.
+    </div>
 
-  <form method="POST" action="/logout" style="margin-top:12px;">
+    <!-- TEMP: lets you test without SMTP -->
+    <form method="POST" action="/dev/verify_me" style="margin-top:12px;">
+      <button class="btn primary" type="submit">Dev Verify (temporary)</button>
+    </form>
+  {% endif %}
+
+  {% if user.credits <= 0 %}
+    <div class="flash error" style="margin-top:12px;">
+      You have 0 credits. Your lead pages will stop capturing leads until you upgrade.
+    </div>
+  {% endif %}
+
+  <hr style="border:none;border-top:1px solid rgba(255,255,255,0.12);margin:18px 0;">
+
+  <h3 style="margin:0 0 10px;">Create a lead page</h3>
+  <p class="muted" style="margin:0 0 12px;">
+    This creates a page like <strong>/r/your-slug</strong>. Each lead captured costs 1 credit.
+  </p>
+
+  <form method="POST" action="/dashboard" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+    <div>
+      <label class="muted" style="display:block;margin:0 0 6px;">Slug (unique) *</label>
+      <input name="slug" placeholder="mortgage-brokers" required
+             style="width:100%;padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);
+                    background:rgba(0,0,0,0.35);color:rgba(255,255,255,0.92);" />
+    </div>
+
+    <div>
+      <label class="muted" style="display:block;margin:0 0 6px;">Brand name</label>
+      <input name="brand_name" placeholder="Lead Machine Pro"
+             style="width:100%;padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);
+                    background:rgba(0,0,0,0.35);color:rgba(255,255,255,0.92);" />
+    </div>
+
+    <div style="grid-column:1/-1;">
+      <label class="muted" style="display:block;margin:0 0 6px;">Headline</label>
+      <input name="headline" placeholder="Turn clicks into booked calls."
+             style="width:100%;padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);
+                    background:rgba(0,0,0,0.35);color:rgba(255,255,255,0.92);" />
+    </div>
+
+    <div style="grid-column:1/-1;">
+      <label class="muted" style="display:block;margin:0 0 6px;">Subheadline</label>
+      <input name="subheadline" placeholder="Capture leads fast, follow up faster."
+             style="width:100%;padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);
+                    background:rgba(0,0,0,0.35);color:rgba(255,255,255,0.92);" />
+    </div>
+
+    <div style="grid-column:1/-1;display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn primary" type="submit">Create page</button>
+    </div>
+  </form>
+
+  <hr style="border:none;border-top:1px solid rgba(255,255,255,0.12);margin:18px 0;">
+
+  <h3 style="margin:0 0 10px;">Your pages</h3>
+
+  {% if pages|length == 0 %}
+    <p class="muted">No pages yet. Create your first slug above.</p>
+  {% else %}
+    <div style="display:grid;gap:10px;">
+      {% for p in pages %}
+        <div style="border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:12px;background:rgba(255,255,255,0.04);">
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;">
+            <div>
+              <strong>{{ p.brand_name }}</strong>
+              <div class="muted">/r/{{ p.slug }}</div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <a class="btn" href="/r/{{ p.slug }}">Open page</a>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <form method="POST" action="/logout" style="margin-top:16px;">
     <button class="btn" type="submit">Logout</button>
   </form>
+
 </div>
 {% endblock %}
