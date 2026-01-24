@@ -432,6 +432,23 @@ def login():
 
     return render_template("login.html")
 
+@app.route("/dev/verify_me", methods=["POST"])
+def dev_verify_me():
+    user = current_user()
+    if not user:
+        flash("Log in first.", "error")
+        return redirect(url_for("login"))
+
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE users SET is_verified = 1, verify_token = NULL WHERE id = ?",
+            (user["id"],)
+        )
+        conn.commit()
+
+    flash("✅ Verified (dev mode). Remove this later.", "success")
+    return redirect(url_for("dashboard"))
+
 
 @app.route("/logout", methods=["POST"])
 def logout():
