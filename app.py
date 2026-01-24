@@ -582,7 +582,8 @@ def admin_dashboard():
         page_rows = conn.execute("SELECT slug FROM pages ORDER BY slug ASC").fetchall()
     slugs = ["home"] + [r["slug"] for r in page_rows]
 
-    return render_template("admin_dashboard.html", leads=leads, slugs=slugs, active_slug=slug)
+    return render_template("dashboard.html", user=user, pages=pages, UPGRADE_URL=UPGRADE_URL)
+
 
 
 @app.route("/admin/export.csv", methods=["GET"])
