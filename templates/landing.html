@@ -3,7 +3,6 @@
 
 {% block content %}
 <style>
-  /* Page-specific styling (keeps the crisp/glow look without fighting base.html) */
   .banner{
     border:1px solid rgba(255,255,255,0.12);
     background: linear-gradient(90deg, rgba(0,255,255,0.12), rgba(140,0,255,0.10), rgba(255,0,120,0.10));
@@ -60,10 +59,22 @@
   </div>
 
   <div style="position:relative;z-index:2;display:flex;gap:10px;flex-wrap:wrap;">
-    <a class="btn" href="/dashboard">Dashboard</a>
-    <a class="btn" href="/admin">Admin</a>
-    <a class="btn primary" href="#lead">Capture Lead</a>
+    {% if session.get("user_id") %}
+      <a class="btn" href="/dashboard">Dashboard</a>
+      <form method="POST" action="/logout" style="margin:0;">
+        <button class="btn" type="submit">Logout</button>
+      </form>
+    {% else %}
+      <!-- Keep auth in base nav; no duplicates here -->
+    {% endif %}
 
+    {% if session.get("is_admin") %}
+      <a class="btn" href="/admin/dashboard">Admin</a>
+    {% else %}
+      <a class="btn" href="/admin">Admin</a>
+    {% endif %}
+
+    <a class="btn primary" href="#lead">{{ cfg.cta_text or "Capture Lead" }}</a>
   </div>
 </div>
 
@@ -74,7 +85,7 @@
 
     <h3 id="lead" style="margin:14px 0 6px;font-size:16px;">Lead capture</h3>
     <p class="muted" style="margin:0 0 10px;">
-      This stores leads instantly. Next we’ll connect it to credits + verified accounts.
+      Leads are stored instantly and routed to the page owner. (Credits apply on client pages.)
     </p>
 
     <form method="POST" action="/lead">
@@ -116,12 +127,12 @@
 
   <aside class="card side">
     <div class="feature">
-      <strong>Next upgrade: Accounts</strong>
-      <span>Signup/login will own lead pages and control who receives leads.</span>
+      <strong>Verified ownership</strong>
+      <span>Lead pages are owned by verified accounts so leads go to the right person.</span>
     </div>
     <div class="feature">
       <strong>Credits system</strong>
-      <span>Free plan gets 3 credits. When credits hit 0, lead capture locks until upgrade.</span>
+      <span>Free plan starts with 3 lead credits. Each lead captured on /r/&lt;slug&gt; uses 1.</span>
     </div>
     <div class="feature">
       <strong>Billing ready</strong>
