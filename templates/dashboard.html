@@ -73,16 +73,19 @@
 
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             {% if p.status != 'running' %}
-              <form method="POST" action="/program/{{ p.id }}/start" style="margin:0;">
-                <button class="btn primary" type="submit">▶ Start (uses 1 credit / 7 days)</button>
-              </form>
-            {% else %}
-              <form method="POST" action="/program/{{ p.id }}/pause" style="margin:0;">
-                <button class="btn" type="submit">⏸ Pause</button>
-              </form>
-            {% endif %}
-          </div>
-        </div>
+  <form method="POST" action="/program/{{ p.id }}/start" style="margin:0;">
+    <button class="btn primary" type="submit">▶ Start (uses 1 credit / 7 days)</button>
+  </form>
+{% else %}
+  <form method="POST" action="/program/{{ p.id }}/run_now" style="margin:0;">
+    <button class="btn primary" type="submit">⚡ Run now</button>
+  </form>
+
+  <form method="POST" action="/program/{{ p.id }}/pause" style="margin:0;">
+    <button class="btn" type="submit">⏸ Pause</button>
+  </form>
+{% endif %}
+
 
         {% if p.active_until %}
           <div class="muted" style="font-size:12px;margin-top:8px;">
