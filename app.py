@@ -521,7 +521,8 @@ def dashboard():
             ORDER BY datetime(created_at) DESC
         """, (user["id"],)).fetchall()
 
-    return render_template("dashboard.html", user=user, pages=pages)
+    return render_template("dashboard.html", user=user, pages=pages, UPGRADE_URL=UPGRADE_URL)
+
 
 
 # =========================
