@@ -584,6 +584,47 @@ def admin_dashboard():
 
     return render_template("dashboard.html", user=user, pages=pages, UPGRADE_URL=UPGRADE_URL)
 
+@app.route("/admin/topup", methods=["GET", "POST"])
+def admin_topup():
+    if not is_admin():
+        return redirect(url_for("admin_login"))
+
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        amount_raw = (request.form.get("amount") or "").strip()
+
+        # Basic validation
+        try:
+            amount = int(amount_raw)
+        except Exception:
+            flash("Amount must be a whole number.", "error")
+            return redirect(url_for("admin_topup"))
+
+        if not email:
+            flash("Email is required.", "error")
+            return redirect(url_for("admin_topup"))
+
+        if amount == 0:
+            flash("Amount must not be 0.", "error")
+            return redirect(url_for("admin_topup"))
+
+        with get_db() as conn:
+            user = conn.execute("SELECT id, credits FROM users WHERE email = ?", (email,)).fetchone()
+            if not user:
+                flash("User not found.", "error")
+                return redirect(url_for("admin_topup"))
+
+            new_credits = int(user["credits"]) + amount
+            if new_credits < 0:
+                new_credits = 0
+
+            conn.execute("UPDATE users SET credits = ? WHERE id = ?", (new_credits, user["id"]))
+            conn.commit()
+
+        flash(f"✅ Updated {email} credits to {new_credits}.", "success")
+        return redirect(url_for("admin_topup"))
+
+    return render_template("admin_topup.html")
 
 
 @app.route("/admin/export.csv", methods=["GET"])
