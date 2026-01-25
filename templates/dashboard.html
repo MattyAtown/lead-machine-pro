@@ -10,7 +10,30 @@
     • Credits: <strong>{{ user.credits }}</strong>
   </p>
 
+{% if user.is_verified == 0 %}
+  <div class="flash error" style="margin-top:12px;">
+    Email not verified — leads will still run, but email notifications are disabled until you verify.
+  </div>
+{% endif %}
+
   {% if user.credits <= 0 and user.plan == 'free' %}
+  <div class="flash error" style="margin-top:12px;">
+    You have 0 credits. Start scanning by topping up or subscribing.
+  </div>
+
+  <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+    {% if UPGRADE_URL %}
+      <a class="btn primary" href="{{ UPGRADE_URL }}" target="_blank" rel="noopener">
+        Buy credits
+      </a>
+    {% endif %}
+    <a class="btn"
+       href="mailto:support@yourdomain.com?subject=Lead%20Machine%20Pro%20-%20Credits%20Top%20Up&body=Account%20email%3A%20{{ user.email }}">
+      Request invoice
+    </a>
+  </div>
+{% endif %}
+
     <div class="flash error" style="margin-top:12px;">
       You have 0 credits. Start scanning by topping up or subscribing.
     </div>
