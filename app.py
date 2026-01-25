@@ -1,6 +1,6 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, make_response, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, session, make_response, abort, jsonify
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import csv
 import io
@@ -9,19 +9,19 @@ import ssl
 from email.message import EmailMessage
 from werkzeug.security import generate_password_hash, check_password_hash
 import secrets
+import json
+import urllib.request
+import urllib.parse
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-prod")
 
 DB_PATH = "leads.db"
 
-# Public base URL for verification links (set in Render)
-APP_BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:5000")
-
 # Admin
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 
-# Email (SMTP) - set these in Render env vars when ready
+# Email (SMTP)
 SMTP_HOST = os.environ.get("SMTP_HOST", "")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
@@ -29,12 +29,51 @@ SMTP_PASS = os.environ.get("SMTP_PASS", "")
 MAIL_FROM_DEFAULT = os.environ.get("MAIL_FROM", "")
 OWNER_NOTIFY_EMAIL_DEFAULT = os.environ.get("OWNER_NOTIFY_EMAIL", "")
 
+# Dashboard upgrade link (optional)
 UPGRADE_URL = os.environ.get("UPGRADE_URL", "")
 
+# Base URL for verification links
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "").strip().rstrip("/")
+
+# Runner protection token (Render cron will call /tasks/run_searches with this)
+RUNNER_TOKEN = os.environ.get("RUNNER_TOKEN", "")
 
 # =========================
-# DB helpers / migrations
+# Legacy multi-client config (kept)
 # =========================
+CLIENTS = {
+    "recruiters": {
+        "brand_name": "Lead Machine Pro",
+        "page_title": "Recruiter Lead Machine",
+        "headline": "Win more hiring briefs. Faster.",
+        "subheadline": "Capture warm leads, respond instantly, and stop losing clients to slower recruiters.",
+        "cta": "⚡ Request a callback",
+        "owner_email": OWNER_NOTIFY_EMAIL_DEFAULT,
+        "mail_from": MAIL_FROM_DEFAULT,
+    },
+    "mortgages": {
+        "brand_name": "Lead Machine Pro",
+        "page_title": "Mortgage Broker Lead Machine",
+        "headline": "Turn mortgage enquiries into booked calls.",
+        "subheadline": "Fast capture + instant reply so your leads don’t cool off.",
+        "cta": "🏡 Get a quote",
+        "owner_email": OWNER_NOTIFY_EMAIL_DEFAULT,
+        "mail_from": MAIL_FROM_DEFAULT,
+    },
+    "consulting": {
+        "brand_name": "Lead Machine Pro",
+        "page_title": "Consulting Lead Machine",
+        "headline": "Convert visitors into paid conversations.",
+        "subheadline": "A single page that captures intent and triggers fast follow-up.",
+        "cta": "🚀 Start the conversation",
+        "owner_email": OWNER_NOTIFY_EMAIL_DEFAULT,
+        "mail_from": MAIL_FROM_DEFAULT,
+    },
+}
+
+def get_client(slug: str):
+    return CLIENTS.get(slug)
+
 def _table_exists(conn, name: str) -> bool:
     row = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -50,7 +89,9 @@ def init_db():
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("PRAGMA foreign_keys = ON;")
 
-        # USERS
+        # -------------------
+        # USERS TABLE
+        # -------------------
         if not _table_exists(conn, "users"):
             conn.execute("""
                 CREATE TABLE users (
@@ -65,8 +106,16 @@ def init_db():
                     created_at TEXT NOT NULL
                 )
             """)
+        else:
+            cols = _columns(conn, "users")
+            if "plan" not in cols:
+                conn.execute("ALTER TABLE users ADD COLUMN plan TEXT NOT NULL DEFAULT 'free'")
+            if "credits" not in cols:
+                conn.execute("ALTER TABLE users ADD COLUMN credits INTEGER NOT NULL DEFAULT 3")
 
-        # PAGES
+        # -------------------
+        # PAGES TABLE (kept)
+        # -------------------
         if not _table_exists(conn, "pages"):
             conn.execute("""
                 CREATE TABLE pages (
@@ -84,7 +133,9 @@ def init_db():
                 )
             """)
 
-        # LEADS
+        # -------------------
+        # LEADS TABLE (kept + migrate)
+        # -------------------
         if not _table_exists(conn, "leads"):
             conn.execute("""
                 CREATE TABLE leads (
@@ -96,30 +147,85 @@ def init_db():
                     email TEXT NOT NULL,
                     phone TEXT,
                     company TEXT,
-                    message TEXT,
-                    FOREIGN KEY(page_id) REFERENCES pages(id) ON DELETE SET NULL
+                    message TEXT
                 )
             """)
         else:
-            # migrate columns safely
             lead_cols = _columns(conn, "leads")
             if "page_slug" not in lead_cols:
                 conn.execute("ALTER TABLE leads ADD COLUMN page_slug TEXT")
             if "page_id" not in lead_cols:
                 conn.execute("ALTER TABLE leads ADD COLUMN page_id INTEGER")
 
-        conn.commit()
+        # =========================
+        # AUTOMATION TABLES (NEW)
+        # =========================
 
+        # Search programs = saved searches that run every 6 hours
+        if not _table_exists(conn, "search_programs"):
+            conn.execute("""
+                CREATE TABLE search_programs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    keywords TEXT NOT NULL,
+                    location TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'inactive',
+                    active_until TEXT,
+                    leads_found_count INTEGER NOT NULL DEFAULT 0,
+                    last_run_at TEXT,
+                    next_run_at TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+
+        # Job leads = discovered opportunities
+        if not _table_exists(conn, "job_leads"):
+            conn.execute("""
+                CREATE TABLE job_leads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    program_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    company TEXT,
+                    role_title TEXT NOT NULL,
+                    location TEXT,
+                    source_url TEXT NOT NULL,
+                    detected_at TEXT NOT NULL,
+                    FOREIGN KEY(program_id) REFERENCES search_programs(id) ON DELETE CASCADE,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+            # Dedupe: same URL should not be sent twice to same user
+            conn.execute("CREATE UNIQUE INDEX idx_jobleads_user_url ON job_leads(user_id, source_url)")
+        else:
+            # Ensure the dedupe index exists (best-effort)
+            try:
+                conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_jobleads_user_url ON job_leads(user_id, source_url)")
+            except Exception:
+                pass
+
+        # Credit events = audit log
+        if not _table_exists(conn, "credit_events"):
+            conn.execute("""
+                CREATE TABLE credit_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    delta INTEGER NOT NULL,
+                    note TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+
+        conn.commit()
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
-
-# =========================
-# Auth helpers
-# =========================
 def current_user():
     uid = session.get("user_id")
     if not uid:
@@ -129,6 +235,24 @@ def current_user():
 
 def is_admin() -> bool:
     return session.get("is_admin") is True
+
+def email_enabled() -> bool:
+    return all([SMTP_HOST, SMTP_USER, SMTP_PASS, MAIL_FROM_DEFAULT])
+
+def send_email(mail_from: str, to_email: str, subject: str, body: str) -> None:
+    if not email_enabled() or not mail_from or not to_email:
+        return
+    msg = EmailMessage()
+    msg["From"] = mail_from
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.set_content(body)
+
+    context = ssl.create_default_context()
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+        server.starttls(context=context)
+        server.login(SMTP_USER, SMTP_PASS)
+        server.send_message(msg)
 
 def require_login():
     if not session.get("user_id"):
@@ -142,55 +266,57 @@ def require_verified(user):
         return False
     return True
 
-
-# =========================
-# Email helpers
-# =========================
-def email_enabled() -> bool:
-    return all([SMTP_HOST, SMTP_USER, SMTP_PASS, MAIL_FROM_DEFAULT])
-
-def send_email(mail_from: str, to_email: str, subject: str, body: str) -> None:
+def bool_match(keywords: str, text: str) -> bool:
     """
-    Sends email via SMTP if configured. Raises on failure.
+    Very simple boolean-ish matching (v1):
+    - supports OR with '|'
+    - supports quoted phrases loosely (we treat as plain substring)
+    - default = all space-separated tokens must appear
+    Example:
+      "python | golang"  => any match
+      "recruiter london" => both words must appear
     """
-    if not (SMTP_HOST and SMTP_USER and SMTP_PASS and mail_from and to_email):
-        raise RuntimeError("SMTP not configured")
+    if not keywords:
+        return False
+    text_l = (text or "").lower()
 
-    msg = EmailMessage()
-    msg["From"] = mail_from
-    msg["To"] = to_email
-    msg["Subject"] = subject
-    msg.set_content(body)
+    # OR groups
+    if "|" in keywords:
+        parts = [p.strip().lower() for p in keywords.split("|") if p.strip()]
+        return any(p in text_l for p in parts)
 
-    context = ssl.create_default_context()
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
-        server.starttls(context=context)
-        server.login(SMTP_USER, SMTP_PASS)
-        server.send_message(msg)
-
+    # AND tokens
+    tokens = [t.strip().lower() for t in keywords.replace('"', '').split() if t.strip()]
+    return all(t in text_l for t in tokens)
 
 # =========================
-# Pages / Ownership helpers
+# Free Job API Adapter (v1): Remotive
+# https://remotive.com/remote-jobs/api
 # =========================
-def get_page_and_owner_by_slug(slug: str):
-    with get_db() as conn:
-        page = conn.execute("""
-            SELECT
-                p.*,
-                u.email AS owner_email,
-                u.is_verified AS owner_verified,
-                u.credits AS owner_credits,
-                u.id AS owner_id
-            FROM pages p
-            JOIN users u ON u.id = p.user_id
-            WHERE p.slug = ? AND p.is_active = 1
-        """, (slug,)).fetchone()
-        return page
+def fetch_jobs_remotive() -> list[dict]:
+    url = "https://remotive.com/api/remote-jobs"
+    req = urllib.request.Request(url, headers={"User-Agent": "LeadMachinePro/1.0"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    jobs = data.get("jobs", []) or []
+    results = []
+    for j in jobs:
+        results.append({
+            "role_title": j.get("title") or "Untitled role",
+            "company": j.get("company_name") or "",
+            "location": j.get("candidate_required_location") or j.get("location") or "",
+            "source_url": j.get("url") or "",
+            "published_at": j.get("publication_date") or ""
+        })
+    return results
 
+def now_iso():
+    return datetime.utcnow().replace(microsecond=0).isoformat()
 
 # =========================
 # Routes
 # =========================
+
 @app.route("/", methods=["GET"])
 def home():
     default_cfg = {
@@ -198,33 +324,29 @@ def home():
         "page_title": "Lead Machine Pro",
         "headline": "Turn clicks into booked calls.",
         "subheadline": "Single-page lead capture that converts visitors into conversations.",
-        "cta_text": "⚡ Capture Lead",
+        "cta": "⚡ Capture Lead",
         "slug": "home",
     }
     return render_template("landing.html", cfg=default_cfg)
 
-
+# Keep legacy public pages
 @app.route("/r/<slug>", methods=["GET"])
 def client_page(slug):
-    slug = (slug or "").strip().lower()
-    page = get_page_and_owner_by_slug(slug)
-    if not page:
+    cfg = get_client((slug or "").strip().lower())
+    if not cfg:
         abort(404)
-
-    cfg = {
-        "slug": page["slug"],
-        "brand_name": page["brand_name"],
-        "page_title": page["brand_name"],
-        "headline": page["headline"],
-        "subheadline": page["subheadline"],
-        "cta_text": page["cta_text"],
-    }
+    cfg = dict(cfg)
+    cfg["slug"] = slug
     return render_template("landing.html", cfg=cfg)
-
 
 @app.route("/lead", methods=["POST"])
 def lead():
-    page_slug = (request.form.get("page_slug") or "home").strip().lower()
+    slug = (request.form.get("page_slug") or "home").strip().lower()
+    cfg = get_client(slug) if slug != "home" else None
+
+    brand_name = (cfg.get("brand_name") if cfg else "Lead Machine Pro")
+    owner_email = (cfg.get("owner_email") if cfg else OWNER_NOTIFY_EMAIL_DEFAULT)
+    mail_from = (cfg.get("mail_from") if cfg else MAIL_FROM_DEFAULT)
 
     name = (request.form.get("name") or "").strip()
     email = (request.form.get("email") or "").strip()
@@ -236,63 +358,23 @@ def lead():
         flash("Name and email are required.", "error")
         return redirect(request.referrer or url_for("home"))
 
-    created_at = datetime.utcnow().isoformat()
-    page_id = None
+    created_at = now_iso()
 
-    # Defaults for HOME (demo)
-    brand_name = "Lead Machine Pro"
-    owner_email = OWNER_NOTIFY_EMAIL_DEFAULT
-    mail_from = MAIL_FROM_DEFAULT
-
-    # If this is a real client page (/r/<slug>), enforce verification + credits
-    if page_slug != "home":
-        page = get_page_and_owner_by_slug(page_slug)
-        if not page:
-            flash("This lead page is not active.", "error")
-            return redirect(url_for("home"))
-
-        if int(page["owner_verified"]) != 1:
-            flash("This page owner has not verified their email yet.", "error")
-            return redirect(url_for("home"))
-
-        if int(page["owner_credits"]) <= 0:
-            flash("This page has run out of lead credits. Please contact the owner to upgrade.", "error")
-            return redirect(url_for("client_page", slug=page_slug))
-
-        # Route emails to the page notify email (created as user's email by default)
-        brand_name = page["brand_name"]
-        owner_email = page["notify_email"] or page["owner_email"]
-        page_id = page["id"]
-
-    # Save lead
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
-            """
-            INSERT INTO leads (created_at, page_slug, page_id, name, email, phone, company, message)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (created_at, page_slug, page_id, name, email, phone, company, message),
+            "INSERT INTO leads (created_at, page_slug, name, email, phone, company, message) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (created_at, slug, name, email, phone, company, message),
         )
         conn.commit()
 
-    # Decrement credits for client pages
-    if page_slug != "home" and page_id is not None:
-        with get_db() as conn:
-            conn.execute("""
-                UPDATE users
-                SET credits = CASE WHEN credits > 0 THEN credits - 1 ELSE 0 END
-                WHERE id = ?
-            """, (page["owner_id"],))
-            conn.commit()
-
-    # Email notifications (best effort)
-    if email_enabled():
-        try:
-            owner_subject = f"🔥 New Lead [{page_slug}]: {name} ({company or 'No company'})"
+    # Best-effort email
+    try:
+        if owner_email and mail_from and email_enabled():
+            owner_subject = f"🔥 New Lead [{slug}]: {name} ({company or 'No company'})"
             owner_body = "\n".join([
                 f"A new lead was captured on {brand_name}.",
                 "",
-                f"Page slug: {page_slug}",
+                f"Page slug: {slug}",
                 f"Time (UTC): {created_at}",
                 f"Name: {name}",
                 f"Email: {email}",
@@ -301,40 +383,16 @@ def lead():
                 "",
                 "Message:",
                 message or "-",
-                "",
-                "Admin Dashboard:",
-                "Visit /admin to view all leads."
             ])
-            if owner_email and mail_from:
-                send_email(mail_from, owner_email, owner_subject, owner_body)
-
-            lead_subject = f"✅ We got your enquiry — {brand_name}"
-            lead_body = "\n".join([
-                f"Hi {name},",
-                "",
-                "Thanks — your enquiry has been received.",
-                "Here’s what happens next:",
-                "1) We review your message",
-                "2) We respond with next steps",
-                "3) If needed, we’ll book a quick call",
-                "",
-                "If you want to add context, just reply to this email.",
-                "",
-                f"— {brand_name}"
-            ])
-            if mail_from:
-                send_email(mail_from, email, lead_subject, lead_body)
-
-        except Exception:
-            flash("✅ Lead captured. (Email notification failed — check SMTP settings.)", "success")
-            return redirect(request.referrer or url_for("home"))
+            send_email(mail_from, owner_email, owner_subject, owner_body)
+    except Exception:
+        pass
 
     flash("✅ Lead captured. We'll reach out shortly.", "success")
     return redirect(request.referrer or url_for("home"))
 
-
 # =========================
-# User Accounts
+# Accounts
 # =========================
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
@@ -348,7 +406,7 @@ def signup():
 
         pw_hash = generate_password_hash(password)
         verify_token = secrets.token_urlsafe(32)
-        created_at = datetime.utcnow().isoformat()
+        created_at = now_iso()
 
         try:
             with get_db() as conn:
@@ -362,9 +420,9 @@ def signup():
             return redirect(url_for("login"))
 
         # Send verification email (best-effort)
-        if email_enabled() and MAIL_FROM_DEFAULT:
+        if APP_BASE_URL:
+            verify_link = f"{APP_BASE_URL}/verify/{verify_token}"
             try:
-                verify_link = f"{APP_BASE_URL}/verify/{verify_token}"
                 subject = "Verify your email — Lead Machine Pro"
                 body = "\n".join([
                     "Welcome to Lead Machine Pro.",
@@ -383,7 +441,6 @@ def signup():
 
     return render_template("signup.html")
 
-
 @app.route("/verify/<token>", methods=["GET"])
 def verify_email(token):
     token = (token or "").strip()
@@ -392,11 +449,7 @@ def verify_email(token):
         return redirect(url_for("login"))
 
     with get_db() as conn:
-        user = conn.execute(
-            "SELECT id, is_verified FROM users WHERE verify_token = ?",
-            (token,),
-        ).fetchone()
-
+        user = conn.execute("SELECT id, is_verified FROM users WHERE verify_token = ?", (token,)).fetchone()
         if not user:
             flash("Verification link is invalid or expired.", "error")
             return redirect(url_for("login"))
@@ -405,15 +458,11 @@ def verify_email(token):
             flash("Email already verified. You can log in.", "success")
             return redirect(url_for("login"))
 
-        conn.execute(
-            "UPDATE users SET is_verified = 1, verify_token = NULL WHERE id = ?",
-            (user["id"],),
-        )
+        conn.execute("UPDATE users SET is_verified = 1, verify_token = NULL WHERE id = ?", (user["id"],))
         conn.commit()
 
-    flash("✅ Email verified. Welcome!", "success")
+    flash("Email verified. Welcome!", "success")
     return redirect(url_for("dashboard"))
-
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -434,31 +483,15 @@ def login():
 
     return render_template("login.html")
 
-@app.route("/dev/verify_me", methods=["POST"])
-def dev_verify_me():
-    user = current_user()
-    if not user:
-        flash("Log in first.", "error")
-        return redirect(url_for("login"))
-
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE users SET is_verified = 1, verify_token = NULL WHERE id = ?",
-            (user["id"],)
-        )
-        conn.commit()
-
-    flash("✅ Verified (dev mode). Remove this later.", "success")
-    return redirect(url_for("dashboard"))
-
-
 @app.route("/logout", methods=["POST"])
 def logout():
     session.pop("user_id", None)
     flash("👋 Logged out.", "success")
     return redirect(url_for("home"))
 
-
+# =========================
+# Dashboard: programs (NEW)
+# =========================
 @app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
     if not require_login():
@@ -469,64 +502,237 @@ def dashboard():
         session.pop("user_id", None)
         return redirect(url_for("login"))
 
-    # Create a lead page (verified users only)
+    # Create a Search Program
     if request.method == "POST":
         if not require_verified(user):
             return redirect(url_for("dashboard"))
 
-        slug = (request.form.get("slug") or "").strip().lower()
-        brand_name = (request.form.get("brand_name") or "Lead Machine Pro").strip()
-        headline = (request.form.get("headline") or "Turn clicks into booked calls.").strip()
-        subheadline = (request.form.get("subheadline") or "Capture leads fast, follow up faster.").strip()
+        name = (request.form.get("name") or "My Job Search").strip()
+        keywords = (request.form.get("keywords") or "").strip()
+        location = (request.form.get("location") or "Global").strip()
 
-        if not slug:
-            flash("Slug is required (e.g. mortgage-brokers).", "error")
+        if not keywords:
+            flash("Keywords are required (supports simple boolean with |).", "error")
             return redirect(url_for("dashboard"))
 
-        allowed = "abcdefghijklmnopqrstuvwxyz0123456789-"
-        slug = "".join([c for c in slug if c in allowed]).strip("-")
-        if not slug:
-            flash("Slug must contain letters/numbers (and hyphens).", "error")
-            return redirect(url_for("dashboard"))
+        created_at = now_iso()
 
-        created_at = datetime.utcnow().isoformat()
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO search_programs (user_id, name, keywords, location, status, created_at)
+                VALUES (?, ?, ?, ?, 'inactive', ?)
+            """, (user["id"], name, keywords, location, created_at))
+            conn.commit()
 
-        try:
-            with get_db() as conn:
-                conn.execute("""
-                    INSERT INTO pages (user_id, slug, brand_name, headline, subheadline, cta_text, notify_email, is_active, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
-                """, (
-                    user["id"],
-                    slug,
-                    brand_name,
-                    headline,
-                    subheadline,
-                    "Capture Lead",
-                    user["email"],  # verified email becomes default notify email
-                    created_at
-                ))
-                conn.commit()
-            flash("✅ Lead page created!", "success")
-        except sqlite3.IntegrityError:
-            flash("That slug is already taken. Try another.", "error")
-
+        flash("✅ Search program created. Start it to consume 1 credit (7 days).", "success")
         return redirect(url_for("dashboard"))
 
-    # List user pages
+    # List programs
     with get_db() as conn:
-        pages = conn.execute("""
-            SELECT * FROM pages
+        programs = conn.execute("""
+            SELECT * FROM search_programs
             WHERE user_id = ?
             ORDER BY datetime(created_at) DESC
         """, (user["id"],)).fetchall()
 
-    return render_template("dashboard.html", user=user, pages=pages, UPGRADE_URL=UPGRADE_URL)
+    return render_template(
+        "dashboard.html",
+        user=user,
+        programs=programs,
+        UPGRADE_URL=UPGRADE_URL
+    )
 
+@app.route("/program/<int:program_id>/start", methods=["POST"])
+def start_program(program_id: int):
+    if not require_login():
+        return redirect(url_for("login"))
+    user = current_user()
+    if not require_verified(user):
+        return redirect(url_for("dashboard"))
 
+    with get_db() as conn:
+        prog = conn.execute("SELECT * FROM search_programs WHERE id=? AND user_id=?", (program_id, user["id"])).fetchone()
+        if not prog:
+            flash("Program not found.", "error")
+            return redirect(url_for("dashboard"))
+
+        # Subscribed users (future) can start without credits. For now: plan != free means subscribed.
+        is_subscribed = (user["plan"] != "free")
+
+        if not is_subscribed:
+            if int(user["credits"]) <= 0:
+                flash("You have 0 credits. Top up or subscribe to start scanning.", "error")
+                return redirect(url_for("dashboard"))
+
+            # Consume 1 credit = 7 days scanning
+            new_credits = int(user["credits"]) - 1
+            conn.execute("UPDATE users SET credits=? WHERE id=?", (new_credits, user["id"]))
+            conn.execute("""
+                INSERT INTO credit_events (user_id, event_type, delta, note, created_at)
+                VALUES (?, 'run_week', -1, ?, ?)
+            """, (user["id"], f"Activated program #{program_id} for 7 days", now_iso()))
+
+        active_until = (datetime.utcnow() + timedelta(days=7)).replace(microsecond=0).isoformat()
+        next_run = (datetime.utcnow() + timedelta(hours=6)).replace(microsecond=0).isoformat()
+
+        conn.execute("""
+            UPDATE search_programs
+            SET status='running', active_until=?, next_run_at=?, last_run_at=NULL
+            WHERE id=?
+        """, (active_until, next_run, program_id))
+        conn.commit()
+
+    flash("✅ Program started. It will run every 6 hours for 7 days.", "success")
+    return redirect(url_for("dashboard"))
+
+@app.route("/program/<int:program_id>/pause", methods=["POST"])
+def pause_program(program_id: int):
+    if not require_login():
+        return redirect(url_for("login"))
+    user = current_user()
+
+    with get_db() as conn:
+        conn.execute("""
+            UPDATE search_programs SET status='paused'
+            WHERE id=? AND user_id=?
+        """, (program_id, user["id"]))
+        conn.commit()
+
+    flash("⏸ Program paused.", "success")
+    return redirect(url_for("dashboard"))
 
 # =========================
-# Admin
+# Runner Endpoint (NEW)
+# Called by Render Cron Job every 6 hours
+# =========================
+def _auth_runner(req) -> bool:
+    if not RUNNER_TOKEN:
+        return False
+    auth = req.headers.get("Authorization", "")
+    return auth.strip() == f"Bearer {RUNNER_TOKEN}"
+
+@app.route("/tasks/run_searches", methods=["POST"])
+def run_searches():
+    if not _auth_runner(request):
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    ran = 0
+    created = 0
+    expired = 0
+
+    now = datetime.utcnow()
+
+    with get_db() as conn:
+        # Find running programs
+        programs = conn.execute("""
+            SELECT sp.*, u.email AS user_email, u.plan AS user_plan
+            FROM search_programs sp
+            JOIN users u ON u.id = sp.user_id
+            WHERE sp.status='running'
+        """).fetchall()
+
+        for sp in programs:
+            ran += 1
+
+            # Expiry check
+            active_until = sp["active_until"]
+            if active_until:
+                try:
+                    au = datetime.fromisoformat(active_until)
+                    if now > au:
+                        conn.execute("""
+                            UPDATE search_programs SET status='expired'
+                            WHERE id=?
+                        """, (sp["id"],))
+                        expired += 1
+                        continue
+                except Exception:
+                    pass
+
+            keywords = sp["keywords"]
+            loc = (sp["location"] or "").lower()
+
+            # Fetch jobs from Remotive (v1 free adapter)
+            try:
+                jobs = fetch_jobs_remotive()
+            except Exception:
+                jobs = []
+
+            for j in jobs:
+                # Match keyword against title + company + location
+                hay = f"{j.get('role_title','')} {j.get('company','')} {j.get('location','')}"
+                if not bool_match(keywords, hay):
+                    continue
+
+                # Location filter (very light v1)
+                if loc and loc != "global":
+                    if loc not in (j.get("location","").lower()):
+                        continue
+
+                source_url = (j.get("source_url") or "").strip()
+                if not source_url:
+                    continue
+
+                detected_at = now_iso()
+                try:
+                    conn.execute("""
+                        INSERT INTO job_leads (program_id, user_id, company, role_title, location, source_url, detected_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        sp["id"],
+                        sp["user_id"],
+                        j.get("company",""),
+                        j.get("role_title",""),
+                        j.get("location",""),
+                        source_url,
+                        detected_at
+                    ))
+                    created += 1
+
+                    # increment counter
+                    conn.execute("""
+                        UPDATE search_programs
+                        SET leads_found_count = leads_found_count + 1
+                        WHERE id=?
+                    """, (sp["id"],))
+
+                    # Instant email per lead (best-effort)
+                    try:
+                        subject = f"🔥 New Job Lead: {j.get('role_title','Role')} @ {j.get('company','Company')}"
+                        body = "\n".join([
+                            "Lead Machine Pro found a match:",
+                            "",
+                            f"Company: {j.get('company','') or 'Unknown'}",
+                            f"Role: {j.get('role_title','')}",
+                            f"Location: {j.get('location','')}",
+                            f"URL: {source_url}",
+                            f"Detected (UTC): {detected_at}",
+                            "",
+                            "— Lead Machine Pro"
+                        ])
+                        send_email(MAIL_FROM_DEFAULT, sp["user_email"], subject, body)
+                    except Exception:
+                        pass
+
+                except sqlite3.IntegrityError:
+                    # Duplicate URL for this user; skip
+                    continue
+
+            # Update run timestamps
+            last_run = now.replace(microsecond=0).isoformat()
+            next_run = (now + timedelta(hours=6)).replace(microsecond=0).isoformat()
+            conn.execute("""
+                UPDATE search_programs
+                SET last_run_at=?, next_run_at=?
+                WHERE id=?
+            """, (last_run, next_run, sp["id"]))
+
+        conn.commit()
+
+    return jsonify({"ok": True, "programs_ran": ran, "leads_created": created, "programs_expired": expired}), 200
+
+# =========================
+# Admin (kept) + Topup (optional)
 # =========================
 @app.route("/admin", methods=["GET", "POST"])
 def admin_login():
@@ -544,46 +750,28 @@ def admin_login():
 
     return render_template("admin_login.html")
 
-
 @app.route("/admin/logout", methods=["POST"])
 def admin_logout():
-    # Only remove admin flag; don't nuke user login unless you want that behavior
-    session.pop("is_admin", None)
-    flash("👋 Admin logged out.", "success")
+    session.clear()
+    flash("👋 Logged out.", "success")
     return redirect(url_for("home"))
-
 
 @app.route("/admin/dashboard", methods=["GET"])
 def admin_dashboard():
     if not is_admin():
         return redirect(url_for("admin_login"))
 
-    slug = (request.args.get("slug") or "").strip()
-
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        if slug:
-            rows = conn.execute("""
-                SELECT id, created_at, page_slug, name, email, phone, company, message
-                FROM leads
-                WHERE page_slug = ?
-                ORDER BY datetime(created_at) DESC
-            """, (slug,)).fetchall()
-        else:
-            rows = conn.execute("""
-                SELECT id, created_at, page_slug, name, email, phone, company, message
-                FROM leads
-                ORDER BY datetime(created_at) DESC
-            """).fetchall()
+        rows = conn.execute("""
+            SELECT id, created_at, page_slug, name, email, phone, company, message
+            FROM leads
+            ORDER BY datetime(created_at) DESC
+        """).fetchall()
 
     leads = [dict(r) for r in rows]
-
-    # slugs for filter UI (all known page slugs + home)
-    with get_db() as conn:
-        page_rows = conn.execute("SELECT slug FROM pages ORDER BY slug ASC").fetchall()
-    slugs = ["home"] + [r["slug"] for r in page_rows]
-
-    return render_template("dashboard.html", user=user, pages=pages, UPGRADE_URL=UPGRADE_URL)
+    slugs = sorted(set(list(CLIENTS.keys()) + ["home"]))
+    return render_template("admin_dashboard.html", leads=leads, slugs=slugs, active_slug="")
 
 @app.route("/admin/topup", methods=["GET", "POST"])
 def admin_topup():
@@ -594,7 +782,6 @@ def admin_topup():
         email = (request.form.get("email") or "").strip().lower()
         amount_raw = (request.form.get("amount") or "").strip()
 
-        # Basic validation
         try:
             amount = int(amount_raw)
         except Exception:
@@ -620,6 +807,10 @@ def admin_topup():
                 new_credits = 0
 
             conn.execute("UPDATE users SET credits = ? WHERE id = ?", (new_credits, user["id"]))
+            conn.execute("""
+                INSERT INTO credit_events (user_id, event_type, delta, note, created_at)
+                VALUES (?, 'topup', ?, ?, ?)
+            """, (user["id"], amount, "Admin credit adjustment", now_iso()))
             conn.commit()
 
         flash(f"✅ Updated {email} credits to {new_credits}.", "success")
@@ -627,47 +818,8 @@ def admin_topup():
 
     return render_template("admin_topup.html")
 
-
-@app.route("/admin/export.csv", methods=["GET"])
-def admin_export_csv():
-    if not is_admin():
-        return redirect(url_for("admin_login"))
-
-    slug = (request.args.get("slug") or "").strip()
-
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        if slug:
-            rows = conn.execute("""
-                SELECT id, created_at, page_slug, name, email, phone, company, message
-                FROM leads
-                WHERE page_slug = ?
-                ORDER BY datetime(created_at) DESC
-            """, (slug,)).fetchall()
-        else:
-            rows = conn.execute("""
-                SELECT id, created_at, page_slug, name, email, phone, company, message
-                FROM leads
-                ORDER BY datetime(created_at) DESC
-            """).fetchall()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["id", "created_at", "page_slug", "name", "email", "phone", "company", "message"])
-
-    for r in rows:
-        writer.writerow([r["id"], r["created_at"], r["page_slug"], r["name"], r["email"], r["phone"], r["company"], r["message"]])
-
-    resp = make_response(output.getvalue())
-    resp.headers["Content-Type"] = "text/csv; charset=utf-8"
-    resp.headers["Content-Disposition"] = "attachment; filename=lead_machine_pro_leads.csv"
-    return resp
-
-
-# =========================
-# Boot
-# =========================
-init_db()
-
 if __name__ == "__main__":
+    init_db()
     app.run(host="0.0.0.0", port=5000, debug=True)
+else:
+    init_db()
