@@ -750,6 +750,125 @@ def admin_login():
 
     return render_template("admin_login.html")
 
+@app.route("/program/<int:program_id>/run_now", methods=["POST"])
+def run_program_now(program_id: int):
+    if not require_login():
+        return redirect(url_for("login"))
+    user = current_user()
+    if not user:
+        return redirect(url_for("login"))
+    if not require_verified(user):
+        return redirect(url_for("dashboard"))
+
+    now = datetime.utcnow()
+
+    with get_db() as conn:
+        sp = conn.execute(
+            """
+            SELECT sp.*, u.email AS user_email
+            FROM search_programs sp
+            JOIN users u ON u.id = sp.user_id
+            WHERE sp.id=? AND sp.user_id=?
+            """,
+            (program_id, user["id"])
+        ).fetchone()
+
+        if not sp:
+            flash("Program not found.", "error")
+            return redirect(url_for("dashboard"))
+
+        # Must be running and not expired
+        if sp["status"] != "running":
+            flash("Start the program first (it activates for 7 days).", "error")
+            return redirect(url_for("dashboard"))
+
+        if sp["active_until"]:
+            try:
+                au = datetime.fromisoformat(sp["active_until"])
+                if now > au:
+                    conn.execute("UPDATE search_programs SET status='expired' WHERE id=?", (sp["id"],))
+                    conn.commit()
+                    flash("Program expired. Start it again (uses 1 credit).", "error")
+                    return redirect(url_for("dashboard"))
+            except Exception:
+                pass
+
+        keywords = sp["keywords"]
+        loc = (sp["location"] or "").lower()
+
+        # Fetch jobs from Remotive
+        try:
+            jobs = fetch_jobs_remotive()
+        except Exception:
+            jobs = []
+
+        created = 0
+        for j in jobs:
+            hay = f"{j.get('role_title','')} {j.get('company','')} {j.get('location','')}"
+            if not bool_match(keywords, hay):
+                continue
+
+            if loc and loc != "global":
+                if loc not in (j.get("location","").lower()):
+                    continue
+
+            source_url = (j.get("source_url") or "").strip()
+            if not source_url:
+                continue
+
+            detected_at = now_iso()
+            try:
+                conn.execute("""
+                    INSERT INTO job_leads (program_id, user_id, company, role_title, location, source_url, detected_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    sp["id"],
+                    sp["user_id"],
+                    j.get("company",""),
+                    j.get("role_title",""),
+                    j.get("location",""),
+                    source_url,
+                    detected_at
+                ))
+                created += 1
+                conn.execute("""
+                    UPDATE search_programs
+                    SET leads_found_count = leads_found_count + 1
+                    WHERE id=?
+                """, (sp["id"],))
+
+                # Instant email (best-effort)
+                try:
+                    subject = f"🔥 New Job Lead: {j.get('role_title','Role')} @ {j.get('company','Company')}"
+                    body = "\n".join([
+                        "Lead Machine Pro found a match:",
+                        "",
+                        f"Company: {j.get('company','') or 'Unknown'}",
+                        f"Role: {j.get('role_title','')}",
+                        f"Location: {j.get('location','')}",
+                        f"URL: {source_url}",
+                        f"Detected (UTC): {detected_at}",
+                        "",
+                        "— Lead Machine Pro"
+                    ])
+                    send_email(MAIL_FROM_DEFAULT, sp["user_email"], subject, body)
+                except Exception:
+                    pass
+
+            except sqlite3.IntegrityError:
+                continue
+
+        last_run = now.replace(microsecond=0).isoformat()
+        conn.execute("""
+            UPDATE search_programs
+            SET last_run_at=?
+            WHERE id=?
+        """, (last_run, sp["id"]))
+        conn.commit()
+
+    flash(f"✅ Manual run complete. New leads found: {created}", "success")
+    return redirect(url_for("dashboard"))
+
 @app.route("/admin/logout", methods=["POST"])
 def admin_logout():
     session.clear()
