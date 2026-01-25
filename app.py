@@ -988,6 +988,55 @@ def admin_topup():
 
     return render_template("admin_topup.html")
 
+@app.route("/leads", methods=["GET"])
+def my_leads():
+    # Require login
+    if not session.get("user_id"):
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
+
+    user = current_user()
+    if not user:
+        session.pop("user_id", None)
+        return redirect(url_for("login"))
+
+    program_id = (request.args.get("program_id") or "").strip()
+
+    with get_db() as conn:
+        # Programs dropdown
+        programs = conn.execute("""
+            SELECT id, name
+            FROM search_programs
+            WHERE user_id = ?
+            ORDER BY datetime(created_at) DESC
+        """, (user["id"],)).fetchall()
+
+        # Leads list (LEFT JOIN just in case)
+        if program_id.isdigit():
+            leads = conn.execute("""
+                SELECT jl.*, COALESCE(sp.name, 'Unknown Program') AS program_name
+                FROM job_leads jl
+                LEFT JOIN search_programs sp ON sp.id = jl.program_id
+                WHERE jl.user_id = ? AND jl.program_id = ?
+                ORDER BY datetime(jl.detected_at) DESC
+            """, (user["id"], int(program_id))).fetchall()
+        else:
+            leads = conn.execute("""
+                SELECT jl.*, COALESCE(sp.name, 'Unknown Program') AS program_name
+                FROM job_leads jl
+                LEFT JOIN search_programs sp ON sp.id = jl.program_id
+                WHERE jl.user_id = ?
+                ORDER BY datetime(jl.detected_at) DESC
+            """, (user["id"],)).fetchall()
+
+    return render_template(
+        "leads.html",
+        user=user,
+        leads=leads,
+        programs=programs,
+        active_program_id=program_id
+    )
+
 if __name__ == "__main__":
     init_db()
     app.run(host="0.0.0.0", port=5000, debug=True)
