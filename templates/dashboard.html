@@ -10,39 +10,27 @@
     • Credits: <strong>{{ user.credits }}</strong>
   </p>
 
-{% if user.is_verified == 0 %}
-  <div class="flash error" style="margin-top:12px;">
-    Email not verified — leads will still run, but email notifications are disabled until you verify.
-  </div>
-{% endif %}
+  {% if user.is_verified == 0 %}
+    <div class="flash error" style="margin-top:12px;">
+      Email not verified — leads will still run, but email notifications are disabled until you verify.
+    </div>
+  {% endif %}
 
   {% if user.credits <= 0 and user.plan == 'free' %}
-  <div class="flash error" style="margin-top:12px;">
-    You have 0 credits. Start scanning by topping up or subscribing.
-  </div>
-
-  <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-    {% if UPGRADE_URL %}
-      <a class="btn primary" href="{{ UPGRADE_URL }}" target="_blank" rel="noopener">
-        Buy credits
-      </a>
-    {% endif %}
-    <a class="btn"
-       href="mailto:support@yourdomain.com?subject=Lead%20Machine%20Pro%20-%20Credits%20Top%20Up&body=Account%20email%3A%20{{ user.email }}">
-      Request invoice
-    </a>
-  </div>
-{% endif %}
-
     <div class="flash error" style="margin-top:12px;">
       You have 0 credits. Start scanning by topping up or subscribing.
     </div>
 
     <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
       {% if UPGRADE_URL %}
-        <a class="btn primary" href="{{ UPGRADE_URL }}" target="_blank" rel="noopener">Buy credits</a>
+        <a class="btn primary" href="{{ UPGRADE_URL }}" target="_blank" rel="noopener">
+          Buy credits
+        </a>
       {% endif %}
-      <a class="btn" href="mailto:support@yourdomain.com?subject=Lead%20Machine%20Pro%20-%20Credits%20Top%20Up&body=Account%20email%3A%20{{ user.email }}">Request invoice</a>
+      <a class="btn"
+         href="mailto:support@yourdomain.com?subject=Lead%20Machine%20Pro%20-%20Credits%20Top%20Up&body=Account%20email%3A%20{{ user.email }}">
+        Request invoice
+      </a>
     </div>
   {% endif %}
 
@@ -96,19 +84,20 @@
 
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             {% if p.status != 'running' %}
-  <form method="POST" action="/program/{{ p.id }}/start" style="margin:0;">
-    <button class="btn primary" type="submit">▶ Start (uses 1 credit / 7 days)</button>
-  </form>
-{% else %}
-  <form method="POST" action="/program/{{ p.id }}/run_now" style="margin:0;">
-    <button class="btn primary" type="submit">⚡ Run now</button>
-  </form>
+              <form method="POST" action="/program/{{ p.id }}/start" style="margin:0;">
+                <button class="btn primary" type="submit">▶ Start (uses 1 credit / 7 days)</button>
+              </form>
+            {% else %}
+              <form method="POST" action="/program/{{ p.id }}/run_now" style="margin:0;">
+                <button class="btn primary" type="submit">⚡ Run now</button>
+              </form>
 
-  <form method="POST" action="/program/{{ p.id }}/pause" style="margin:0;">
-    <button class="btn" type="submit">⏸ Pause</button>
-  </form>
-{% endif %}
-
+              <form method="POST" action="/program/{{ p.id }}/pause" style="margin:0;">
+                <button class="btn" type="submit">⏸ Pause</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
 
         {% if p.active_until %}
           <div class="muted" style="font-size:12px;margin-top:8px;">
