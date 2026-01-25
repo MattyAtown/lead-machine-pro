@@ -548,6 +548,51 @@ def dashboard():
         UPGRADE_URL=UPGRADE_URL
     )
 
+@app.route("/leads", methods=["GET"])
+def my_leads():
+    if not require_login():
+        return redirect(url_for("login"))
+
+    user = current_user()
+    if not user:
+        session.pop("user_id", None)
+        return redirect(url_for("login"))
+
+    program_id = (request.args.get("program_id") or "").strip()
+
+    with get_db() as conn:
+        if program_id.isdigit():
+            rows = conn.execute("""
+                SELECT jl.*, sp.name AS program_name
+                FROM job_leads jl
+                JOIN search_programs sp ON sp.id = jl.program_id
+                WHERE jl.user_id = ? AND jl.program_id = ?
+                ORDER BY datetime(jl.detected_at) DESC
+            """, (user["id"], int(program_id))).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT jl.*, sp.name AS program_name
+                FROM job_leads jl
+                JOIN search_programs sp ON sp.id = jl.program_id
+                WHERE jl.user_id = ?
+                ORDER BY datetime(jl.detected_at) DESC
+            """, (user["id"],)).fetchall()
+
+        programs = conn.execute("""
+            SELECT id, name
+            FROM search_programs
+            WHERE user_id = ?
+            ORDER BY datetime(created_at) DESC
+        """, (user["id"],)).fetchall()
+
+    return render_template(
+        "leads.html",
+        user=user,
+        leads=rows,
+        programs=programs,
+        active_program_id=program_id
+    )
+
 @app.route("/program/<int:program_id>/start", methods=["POST"])
 def start_program(program_id: int):
     if not require_login():
