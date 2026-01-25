@@ -262,10 +262,15 @@ def require_login():
     return True
 
 def require_verified(user):
+    # Allow bypass in dev / until SMTP is set up
+    if DEV_ALLOW_UNVERIFIED:
+        return True
+
     if not user or int(user["is_verified"]) != 1:
         flash("Please verify your email before using this feature.", "error")
         return False
     return True
+
 
 def bool_match(keywords: str, text: str) -> bool:
     """
