@@ -1,126 +1,101 @@
 {% extends "base.html" %}
 {% block title %}Dashboard • Lead Machine Pro{% endblock %}
-
 {% block content %}
-<div class="card" style="max-width:950px;margin:0 auto;">
 
-  <h2 style="margin:0 0 6px;">Your dashboard</h2>
-  <p class="muted" style="margin:0 0 14px;">
+<div class="card">
+  <h2>Your dashboard</h2>
+  <p class="muted">
     Logged in as <strong>{{ user.email }}</strong>
     • Plan: <strong>{{ user.plan }}</strong>
     • Credits: <strong>{{ user.credits }}</strong>
-    • Verified: <strong>{{ "Yes" if user.is_verified == 1 else "No" }}</strong>
   </p>
 
-  {% if user.is_verified != 1 %}
-    <div class="flash error" style="margin-top:10px;">
-      Your email is not verified yet. Verification is required to create lead pages.
+  {% if user.credits <= 0 and user.plan == 'free' %}
+    <div class="flash error" style="margin-top:12px;">
+      You have 0 credits. Start scanning by topping up or subscribing.
     </div>
 
-    <!-- TEMP: lets you test without SMTP -->
-    <form method="POST" action="/dev/verify_me" style="margin-top:12px;">
-      <button class="btn primary" type="submit">Dev Verify (temporary)</button>
-    </form>
+    <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+      {% if UPGRADE_URL %}
+        <a class="btn primary" href="{{ UPGRADE_URL }}" target="_blank" rel="noopener">Buy credits</a>
+      {% endif %}
+      <a class="btn" href="mailto:support@yourdomain.com?subject=Lead%20Machine%20Pro%20-%20Credits%20Top%20Up&body=Account%20email%3A%20{{ user.email }}">Request invoice</a>
+    </div>
   {% endif %}
 
-  {% if user.credits <= 0 %}
-  <div class="flash error" style="margin-top:12px;">
-    You have 0 credits. Your lead pages will stop capturing leads until you upgrade.
-  </div>
+  <hr style="border:none;border-top:1px solid rgba(255,255,255,0.12);margin:16px 0;">
 
-  <div class="card" style="margin-top:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);">
-    <h3 style="margin:0 0 8px;">Upgrade to keep capturing leads</h3>
-    <p class="muted" style="margin:0 0 12px;">
-      Your pages are live, but lead capture is locked until credits are topped up.
-      Choose a quick top-up option below.
-    </p>
-
-    <div style="display:flex;gap:10px;flex-wrap:wrap;">
-      <!-- Option A: simple payment link (works immediately) -->
-      <a class="btn primary" href="{{ UPGRADE_URL or '#' }}" target="_blank" rel="noopener">
-        Buy credits
-      </a>
-
-      <!-- Option B: email you (manual invoicing fallback) -->
-      <a class="btn" href="mailto:support@yourdomain.com?subject=Lead%20Machine%20Pro%20-%20Credits%20Top%20Up&body=Hi%2C%0A%0AMy%20account%20email%20is%3A%20{{ user.email }}%0A%0AI%20need%20more%20credits.%20Please%20send%20payment%20options.%0A">
-        Request invoice
-      </a>
-    </div>
-
-    <p class="muted" style="margin-top:10px;font-size:12px;">
-      Tip: Stripe subscriptions can be added later once cashflow starts.
-    </p>
-  </div>
-{% endif %}
-
-  <hr style="border:none;border-top:1px solid rgba(255,255,255,0.12);margin:18px 0;">
-
-  <h3 style="margin:0 0 10px;">Create a lead page</h3>
+  <h3 style="margin:0 0 8px;">Create a Search Program</h3>
   <p class="muted" style="margin:0 0 12px;">
-    This creates a page like <strong>/r/your-slug</strong>. Each lead captured costs 1 credit.
+    Keywords supports simple boolean with <strong>|</strong> (OR). Example: <code>python | golang</code>.
   </p>
 
-  <form method="POST" action="/dashboard" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+  <form method="POST" style="display:grid;gap:12px;max-width:640px;">
     <div>
-      <label class="muted" style="display:block;margin:0 0 6px;">Slug (unique) *</label>
-      <input name="slug" placeholder="mortgage-brokers" required
-             style="width:100%;padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);
-                    background:rgba(0,0,0,0.35);color:rgba(255,255,255,0.92);" />
+      <label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">Program name</label>
+      <input name="name" placeholder="My Job Search" style="width:100%;" />
     </div>
 
     <div>
-      <label class="muted" style="display:block;margin:0 0 6px;">Brand name</label>
-      <input name="brand_name" placeholder="Lead Machine Pro"
-             style="width:100%;padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);
-                    background:rgba(0,0,0,0.35);color:rgba(255,255,255,0.92);" />
+      <label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">Keywords *</label>
+      <input name="keywords" placeholder="recruiter | talent acquisition | headhunter" required style="width:100%;" />
     </div>
 
-    <div style="grid-column:1/-1;">
-      <label class="muted" style="display:block;margin:0 0 6px;">Headline</label>
-      <input name="headline" placeholder="Turn clicks into booked calls."
-             style="width:100%;padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);
-                    background:rgba(0,0,0,0.35);color:rgba(255,255,255,0.92);" />
+    <div>
+      <label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">Location</label>
+      <input name="location" placeholder="Global (or London, UK, Europe...)" style="width:100%;" />
     </div>
 
-    <div style="grid-column:1/-1;">
-      <label class="muted" style="display:block;margin:0 0 6px;">Subheadline</label>
-      <input name="subheadline" placeholder="Capture leads fast, follow up faster."
-             style="width:100%;padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);
-                    background:rgba(0,0,0,0.35);color:rgba(255,255,255,0.92);" />
-    </div>
-
-    <div style="grid-column:1/-1;display:flex;gap:10px;justify-content:flex-end;">
-      <button class="btn primary" type="submit">Create page</button>
-    </div>
+    <button class="btn primary" type="submit" style="justify-content:center;">Create Program</button>
   </form>
+</div>
 
-  <hr style="border:none;border-top:1px solid rgba(255,255,255,0.12);margin:18px 0;">
+<div class="card" style="margin-top:14px;">
+  <h3 style="margin-top:0;">Your Programs</h3>
 
-  <h3 style="margin:0 0 10px;">Your pages</h3>
+  {% if programs|length == 0 %}
+    <p class="muted">No programs yet. Create one above, then Start it.</p>
+  {% endif %}
 
-  {% if pages|length == 0 %}
-    <p class="muted">No pages yet. Create your first slug above.</p>
-  {% else %}
-    <div style="display:grid;gap:10px;">
-      {% for p in pages %}
-        <div style="border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:12px;background:rgba(255,255,255,0.04);">
-          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;">
-            <div>
-              <strong>{{ p.brand_name }}</strong>
-              <div class="muted">/r/{{ p.slug }}</div>
+  <div style="display:grid;gap:12px;">
+    {% for p in programs %}
+      <div style="border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:12px;background:rgba(255,255,255,0.04);">
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div>
+            <strong>{{ p.name }}</strong>
+            <div class="muted" style="font-size:12px;margin-top:2px;">
+              Status: <strong>{{ p.status }}</strong> • Leads found: <strong>{{ p.leads_found_count }}</strong>
             </div>
-            <div style="display:flex;gap:10px;flex-wrap:wrap;">
-              <a class="btn" href="/r/{{ p.slug }}">Open page</a>
+            <div class="muted" style="font-size:12px;margin-top:2px;">
+              Keywords: {{ p.keywords }} • Location: {{ p.location }}
             </div>
           </div>
-        </div>
-      {% endfor %}
-    </div>
-  {% endif %}
 
-  <form method="POST" action="/logout" style="margin-top:16px;">
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            {% if p.status != 'running' %}
+              <form method="POST" action="/program/{{ p.id }}/start" style="margin:0;">
+                <button class="btn primary" type="submit">▶ Start (uses 1 credit / 7 days)</button>
+              </form>
+            {% else %}
+              <form method="POST" action="/program/{{ p.id }}/pause" style="margin:0;">
+                <button class="btn" type="submit">⏸ Pause</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+
+        {% if p.active_until %}
+          <div class="muted" style="font-size:12px;margin-top:8px;">
+            Active until (UTC): {{ p.active_until }}
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+
+  <form method="POST" action="/logout" style="margin-top:14px;">
     <button class="btn" type="submit">Logout</button>
   </form>
-
 </div>
+
 {% endblock %}
