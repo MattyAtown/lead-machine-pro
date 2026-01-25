@@ -28,6 +28,7 @@ SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASS = os.environ.get("SMTP_PASS", "")
 MAIL_FROM_DEFAULT = os.environ.get("MAIL_FROM", "")
 OWNER_NOTIFY_EMAIL_DEFAULT = os.environ.get("OWNER_NOTIFY_EMAIL", "")
+DEV_ALLOW_UNVERIFIED = os.environ.get("DEV_ALLOW_UNVERIFIED", "1") == "1"
 
 # Dashboard upgrade link (optional)
 UPGRADE_URL = os.environ.get("UPGRADE_URL", "")
